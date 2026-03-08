@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "PDF extraction pipeline for scientific papers"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
+authors = [{name = "Reto Stamm", email = "reto@retostamm.com"}]
 readme = "README.md"
 keywords = ["pdf", "extraction", "scientific-papers", "nlp", "summarization", "embeddings"]
 classifiers = [
@@ -43,6 +44,11 @@ gpu = [
 grobid = [
     "grobid-client-python>=0.0.7",
 ]
+dev = [
+    "pytest>=8.0",
+    "black>=24.0",
+    "ruff>=0.5",
+]
 
 [project.scripts]
 acatome-extract = "acatome_extract.cli:app"
@@ -53,3 +59,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/acatome_extract"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+line-length = 88
