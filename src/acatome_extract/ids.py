@@ -36,7 +36,8 @@ def make_slug(authors: list[dict], year: int | None, title: str) -> str:
     """Generate human-readable slug: {surname}{year}{keyword}.
 
     Rules: ASCII-only, lowercase, skip stopwords, 'anon' if no author,
-    '0000' if no year.
+    '0000' if no year.  Non-Latin titles (Chinese, Arabic, etc.) get a
+    short hash as keyword.
     """
     # First author surname
     if authors:
@@ -45,7 +46,7 @@ def make_slug(authors: list[dict], year: int | None, title: str) -> str:
     else:
         surname = "anon"
 
-    # ASCII-only
+    # ASCII-only (transliterate accented → base letter)
     surname = unicodedata.normalize("NFKD", surname).encode("ascii", "ignore").decode()
     surname = re.sub(r"[^a-z]", "", surname)
     if not surname:
@@ -55,10 +56,21 @@ def make_slug(authors: list[dict], year: int | None, title: str) -> str:
     yr = str(year) if year else "0000"
 
     # First content word from title
-    words = re.findall(r"[a-z]+", title.lower())
+    # Transliterate first, then extract ASCII words
+    ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+    words = re.findall(r"[a-z]+", ascii_title.lower())
     keyword = next(
-        (w for w in words if w not in STOPWORDS), words[0] if words else "untitled"
+        (w for w in words if w not in STOPWORDS), words[0] if words else ""
     )
+
+    # Non-Latin titles may yield no ASCII words — use short hash
+    if not keyword:
+        if title.strip():
+            import hashlib
+
+            keyword = hashlib.sha256(title.encode()).hexdigest()[:6]
+        else:
+            keyword = "untitled"
 
     return f"{surname}{yr}{keyword}"
 

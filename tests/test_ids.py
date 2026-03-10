@@ -57,6 +57,27 @@ class TestMakeSlug:
     def test_empty_title(self):
         assert make_slug([{"name": "Smith"}], 2024, "") == "smith2024untitled"
 
+    def test_chinese_title(self):
+        slug = make_slug([{"name": "张, 伟"}], 2023, "零间隙CO₂电解实验研究")
+        # Author name is non-Latin → "anon", title has no ASCII words → short hash
+        assert slug.startswith("anon2023")
+        assert len(slug) > len("anon2023")  # has a keyword hash
+
+    def test_mixed_cjk_english_title(self):
+        slug = make_slug([{"name": "Li, Wei"}], 2024, "新型 Catalyst Design for CO2 Reduction")
+        # "catalyst" is first ASCII content word (skips stopword "for")
+        assert slug == "li2024catalyst"
+
+    def test_non_latin_author(self):
+        slug = make_slug([{"name": "田中太郎"}], 2022, "Thermal Analysis")
+        # Japanese name → no ASCII → "anon"
+        assert slug == "anon2022thermal"
+
+    def test_chinese_title_deterministic(self):
+        a = make_slug([], 2023, "零间隙CO₂电解实验研究")
+        b = make_slug([], 2023, "零间隙CO₂电解实验研究")
+        assert a == b
+
 
 class TestMakeNodeId:
     def test_format(self):

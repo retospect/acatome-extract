@@ -12,7 +12,9 @@ import pytest
 from acatome_extract.bundle import read_bundle
 from acatome_extract.enrich import (
     _embed_blocks,
+    _is_non_latin,
     _summarize_blocks,
+    _translate_slug,
     enrich,
 )
 
@@ -198,3 +200,108 @@ class TestEnrichE2E:
         data2 = read_bundle(enrichable_bundle)
         for b in data2["blocks"]:
             assert "default" not in b.get("embeddings", {})
+
+
+class TestIsNonLatin:
+    def test_english(self):
+        assert _is_non_latin("Quantum Error Correction") is False
+
+    def test_chinese(self):
+        assert _is_non_latin("零间隙CO₂电解实验研究") is True
+
+    def test_japanese(self):
+        assert _is_non_latin("量子コンピュータの研究") is True
+
+    def test_mixed_mostly_english(self):
+        assert _is_non_latin("A New 催化 Catalyst Design") is False
+
+    def test_mixed_mostly_chinese(self):
+        assert _is_non_latin("新型催化剂 CO2 设计与应用研究") is True
+
+    def test_accented_latin(self):
+        assert _is_non_latin("Über die Wärmeleitfähigkeit") is False
+
+    def test_empty(self):
+        assert _is_non_latin("") is False
+
+    def test_numbers_only(self):
+        assert _is_non_latin("12345") is False
+
+
+class TestTranslateSlug:
+    def test_latin_title_unchanged(self, tmp_path):
+        data = {
+            "header": {
+                "slug": "smith2024quantum",
+                "title": "Quantum Error Correction",
+                "authors": [{"name": "Smith"}],
+                "year": 2024,
+            }
+        }
+        bundle_path = tmp_path / "smith2024quantum.acatome"
+        bundle_path.touch()
+        result = _translate_slug(data, bundle_path, "ollama/test")
+        assert result == bundle_path
+        assert data["header"]["slug"] == "smith2024quantum"
+
+    def test_chinese_title_translated(self, tmp_path):
+        data = {
+            "header": {
+                "slug": "zhang2023a1b2c3",
+                "title": "零间隙CO₂电解实验研究",
+                "authors": [{"name": "Zhang, Wei"}],
+                "year": 2023,
+            }
+        }
+        bundle_path = tmp_path / "zhang2023a1b2c3.acatome"
+        bundle_path.touch()
+
+        with patch("acatome_extract.enrich._get_llm") as mock_get:
+            mock_llm = MagicMock(return_value="electrolysis")
+            mock_get.return_value = mock_llm
+            result = _translate_slug(data, bundle_path, "ollama/test")
+
+        assert data["header"]["slug"] == "zhang2023electrolysis"
+        assert result.name == "zhang2023electrolysis.acatome"
+        assert result.exists()
+        assert not bundle_path.exists()  # old file renamed
+
+    def test_renames_companion_pdf(self, tmp_path):
+        data = {
+            "header": {
+                "slug": "li2024abcdef",
+                "title": "新型催化剂的设计与合成",
+                "authors": [{"name": "Li"}],
+                "year": 2024,
+            }
+        }
+        bundle_path = tmp_path / "li2024abcdef.acatome"
+        bundle_path.touch()
+        pdf_path = tmp_path / "li2024abcdef.pdf"
+        pdf_path.touch()
+
+        with patch("acatome_extract.enrich._get_llm") as mock_get:
+            mock_llm = MagicMock(return_value="catalyst")
+            mock_get.return_value = mock_llm
+            result = _translate_slug(data, bundle_path, "ollama/test")
+
+        assert (tmp_path / "li2024catalyst.pdf").exists()
+        assert not pdf_path.exists()
+
+    def test_no_llm_unchanged(self, tmp_path):
+        data = {
+            "header": {
+                "slug": "anon2023abcdef",
+                "title": "日本語タイトル",
+                "authors": [],
+                "year": 2023,
+            }
+        }
+        bundle_path = tmp_path / "anon2023abcdef.acatome"
+        bundle_path.touch()
+
+        with patch("acatome_extract.enrich._get_llm", return_value=None):
+            result = _translate_slug(data, bundle_path, "")
+
+        assert result == bundle_path
+        assert data["header"]["slug"] == "anon2023abcdef"

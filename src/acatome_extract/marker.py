@@ -98,6 +98,29 @@ _FIGURE_CAPTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Frontmatter headings that are journal boilerplate, not paper structure.
+# Matched case-insensitively against heading text.
+_JUNK_HEADING_RE = re.compile(
+    r"^(?:"
+    r"OPEN\s+ACCESS"
+    r"|COPYRIGHT"
+    r"|CITATION"
+    r"|REVIEWED\s+BY\b"
+    r"|EDITED\s+BY\b"
+    r"|\*?CORRESPONDENCE\b"
+    r"|RECEIVED\s+\d"
+    r"|ACCEPTED\s+\d"
+    r"|PUBLISHED\s+\d"
+    r"|HANDLING\s+EDITOR\b"
+    r"|ASSOCIATE\s+EDITOR\b"
+    r"|TYPE\s"
+    r")",
+    re.IGNORECASE,
+)
+
+# Markdown link: [text](url)
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+
 
 def extract_blocks_marker(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
     """Extract structured blocks from a PDF using Marker.
@@ -184,6 +207,10 @@ def _patch_surya_config() -> None:
 
 def _marker_extract(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
     """Run Marker and parse its MarkdownOutput into block schema."""
+    import warnings
+
+    warnings.filterwarnings("ignore", message=".*torch_dtype.*is deprecated")
+
     _patch_text_config_ambiguity()
     _patch_surya_config()
     from marker.converters.pdf import PdfConverter
@@ -220,6 +247,8 @@ def _marker_extract(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
         block_type, text = _classify_chunk(chunk)
 
         if block_type == "section_header":
+            # Strip markdown links from heading text
+            text = _MD_LINK_RE.sub(r"\1", text).strip()
             current_section = [text]
             # Still emit the heading as a block
         elif block_type == "skip":
@@ -256,6 +285,9 @@ def _marker_extract(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
 
     # Match figure captions
     blocks = _match_captions(blocks)
+
+    # Mark frontmatter junk
+    blocks = _mark_junk(blocks)
 
     return blocks
 
@@ -384,6 +416,36 @@ def _match_captions(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         result.append(block)
 
     return result
+
+
+def _mark_junk(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Demote frontmatter boilerplate blocks to type 'junk'.
+
+    A junk heading and all blocks that follow it (inheriting its
+    section_path) are marked as junk.  Once a real section_header
+    appears, junk mode ends and subsequent blocks are normal.
+    """
+    in_junk = False
+    junk_section: list[str] | None = None
+
+    for block in blocks:
+        btype = block.get("type", "")
+        text = block.get("text", "")
+
+        if btype == "section_header":
+            if _JUNK_HEADING_RE.match(text):
+                in_junk = True
+                junk_section = block.get("section_path")
+                block["type"] = "junk"
+            else:
+                in_junk = False
+                junk_section = None
+        elif in_junk:
+            # Followers of a junk heading inherit the junk section_path
+            if block.get("section_path") == junk_section:
+                block["type"] = "junk"
+
+    return blocks
 
 
 _HEADING_PATTERN = re.compile(r"^(\d+[\.\s]\s*\S|[A-Z][A-Z\s]{2,}$)", re.MULTILINE)

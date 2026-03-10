@@ -17,11 +17,6 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
-[project.urls]
-Homepage = "https://github.com/acatome/acatome-extract"
-Repository = "https://github.com/acatome/acatome-extract"
-Issues = "https://github.com/acatome/acatome-extract/issues"
-
 dependencies = [
     "acatome-meta>=0.1.0",
     "marker-pdf>=1.0",
@@ -29,6 +24,11 @@ dependencies = [
     "litellm>=1.40",
     "watchdog>=4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/acatome/acatome-extract"
+Repository = "https://github.com/acatome/acatome-extract"
+Issues = "https://github.com/acatome/acatome-extract/issues"
 
 [project.optional-dependencies]
 store = [

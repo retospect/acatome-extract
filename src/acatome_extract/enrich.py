@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +21,7 @@ log = logging.getLogger("acatome_extract.enrich")
 from acatome_extract.bundle import read_bundle, write_bundle
 
 # Block types that skip embeddings
-_SKIP_EMBED_TYPES = {"section_header", "title", "author", "equation"}
+_SKIP_EMBED_TYPES = {"section_header", "title", "author", "equation", "junk"}
 
 
 def enrich(
@@ -48,6 +50,10 @@ def enrich(
     from acatome_meta.config import load_config
 
     cfg = load_config()
+
+    # Step 5½: Translate slug if title is non-Latin
+    if summarize:
+        bundle_path = _translate_slug(data, bundle_path, summarizer)
 
     # Step 6: Summarize
     if summarize:
@@ -82,6 +88,87 @@ def enrich(
     data["enrichment_meta"]["embedding_models"] = profile_details
 
     write_bundle(data, bundle_path)
+    return bundle_path
+
+
+# ---------------------------------------------------------------------------
+# Non-Latin slug translation
+# ---------------------------------------------------------------------------
+
+
+def _is_non_latin(title: str) -> bool:
+    """Return True if the title is predominantly non-Latin script."""
+    if not title.strip():
+        return False
+    ascii_title = (
+        unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+    )
+    ascii_letters = sum(1 for c in ascii_title if c.isalpha())
+    total_letters = sum(1 for c in title if c.isalpha())
+    if total_letters == 0:
+        return False
+    return ascii_letters / total_letters < 0.5
+
+
+def _translate_slug(
+    data: dict[str, Any], bundle_path: Path, summarizer: str
+) -> Path:
+    """If the title is non-Latin, ask the LLM for an English keyword and update the slug.
+
+    Returns the (possibly renamed) bundle path.
+    """
+    header = data.get("header", {})
+    title = header.get("title", "")
+    if not _is_non_latin(title):
+        return bundle_path
+
+    llm = _get_llm(summarizer)
+    if llm is None:
+        log.warning("  [slug] no LLM available for slug translation")
+        return bundle_path
+
+    try:
+        keyword = llm(
+            "Translate this paper title to English, then pick the single most "
+            "descriptive keyword (one lowercase word, no articles, no stopwords). "
+            "Reply with ONLY that one word, nothing else.\n\n"
+            f"Title: {title}"
+        ).strip().lower()
+        # Sanitize: keep only a-z
+        keyword = re.sub(r"[^a-z]", "", keyword)
+        if not keyword or len(keyword) < 2:
+            log.warning("  [slug] LLM returned unusable keyword %r", keyword)
+            return bundle_path
+    except Exception as exc:
+        log.warning("  [slug] LLM translation failed: %s", exc)
+        return bundle_path
+
+    from acatome_extract.ids import make_slug
+
+    old_slug = header.get("slug", "")
+    new_slug = make_slug(
+        header.get("authors", []), header.get("year"), keyword
+    )
+    if new_slug == old_slug:
+        return bundle_path
+
+    log.info("  [slug] %s → %s (translated from %r)", old_slug, new_slug, title[:40])
+    header["slug"] = new_slug
+    data["header"] = header
+
+    # Rename bundle file
+    new_path = bundle_path.parent / f"{new_slug}.acatome"
+    if not new_path.exists():
+        bundle_path.rename(new_path)
+        # Also rename companion PDF if present
+        old_pdf = bundle_path.with_suffix(".pdf")
+        if old_pdf.exists():
+            new_pdf = new_path.with_suffix(".pdf")
+            if not new_pdf.exists():
+                old_pdf.rename(new_pdf)
+        return new_path
+
+    log.warning("  [slug] target %s already exists, keeping %s", new_path.name, bundle_path.name)
     return bundle_path
 
 
@@ -121,6 +208,7 @@ def _summarize_blocks(
             summary = llm(
                 f"{meta}"
                 "Terse telegram-style summary, one line. "
+                "Always respond in English regardless of source language. "
                 "No articles, no filler ('This passage', 'The authors'). "
                 "Core claim first; detail after semicolon. "
                 "Must make sense if truncated at semicolon.\n"
@@ -156,6 +244,7 @@ def _summarize_paper(blocks: list[dict[str, Any]], summarizer: str) -> str:
     try:
         result = llm(
             f"3-5 telegram-style lines, broadest claim to finest detail. "
+            f"Always respond in English regardless of source language. "
             f"No articles, no filler. Line 1 stands alone as summary. "
             f"Each subsequent line narrows scope.\n\n{combined[:4000]}"
         ).strip()
