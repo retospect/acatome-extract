@@ -24,10 +24,12 @@ def extract(
         "-t",
         help="Document type: article, datasheet, manual, techreport, notes, other",
     ),
+    skip_existing: bool = typer.Option(
+        False, "--skip-existing", help="Skip PDFs that already have a .acatome bundle"
+    ),
 ):
     """Extract PDF(s) into .acatome bundle(s)."""
     from acatome_extract.pipeline import extract as do_extract
-    from acatome_extract.pipeline import extract_dir
 
     verify = not no_verify
 
@@ -35,9 +37,27 @@ def extract(
         bundle = do_extract(path, output_dir=output, verify=verify, doc_type=doc_type)
         typer.echo(f"✓ {bundle}")
     elif path.is_dir():
-        result = extract_dir(path, output_dir=output, verify=verify, doc_type=doc_type)
+        pdfs = sorted(path.resolve().glob("*.pdf"))
+        if not pdfs:
+            typer.echo(f"No PDFs found in {path}")
+            raise typer.Exit(1)
+        typer.echo(f"Found {len(pdfs)} PDFs in {path}")
+        succeeded, failed, skipped = 0, 0, 0
+        for i, pdf in enumerate(pdfs, 1):
+            # Skip if .acatome bundle already exists next to the PDF
+            if skip_existing and pdf.with_suffix(".acatome").exists():
+                skipped += 1
+                typer.echo(f"  [{i}/{len(pdfs)}] ⏭ {pdf.name} (bundle exists)")
+                continue
+            try:
+                bundle = do_extract(pdf, output_dir=output, verify=verify, doc_type=doc_type)
+                succeeded += 1
+                typer.echo(f"  [{i}/{len(pdfs)}] ✓ {pdf.name} → {bundle.name}")
+            except Exception as e:
+                failed += 1
+                typer.echo(f"  [{i}/{len(pdfs)}] ✗ {pdf.name}: {e}", err=True)
         typer.echo(
-            f"✓ {len(result['succeeded'])} extracted, {len(result['failed'])} failed"
+            f"\nDone: {succeeded} extracted, {skipped} skipped, {failed} failed"
         )
     else:
         typer.echo(f"Error: {path} not found", err=True)
