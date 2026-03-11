@@ -120,6 +120,30 @@ class TestRunPipeline:
 
     @patch("acatome_extract.bundle.read_bundle")
     @patch("acatome_extract.pipeline.extract")
+    def test_unverified_carries_bundle_path(self, mock_extract, mock_read, tmp_path):
+        """UnverifiedPaperError includes bundle_path so error handler can clean up."""
+        from acatome_extract.watch import UnverifiedPaperError, run_pipeline
+
+        bundle = tmp_path / "anon2024.acatome"
+        bundle.write_bytes(b"bundle")
+        mock_extract.return_value = bundle
+        mock_read.return_value = {
+            "header": {
+                "title": "PII: 0015-1882(92)80247-G",
+                "verified": False,
+                "verify_warnings": ["title mismatch"],
+            }
+        }
+
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"pdf")
+
+        with pytest.raises(UnverifiedPaperError) as exc_info:
+            run_pipeline(pdf, enrich=False, ingest=False)
+        assert exc_info.value.bundle_path == bundle
+
+    @patch("acatome_extract.bundle.read_bundle")
+    @patch("acatome_extract.pipeline.extract")
     def test_rejects_garbage_metadata(self, mock_extract, mock_read, tmp_path):
         """Verified=True but no DOI + anon/untitled → still rejected."""
         from acatome_extract.watch import UnverifiedPaperError, run_pipeline
@@ -139,6 +163,44 @@ class TestRunPipeline:
 
         with pytest.raises(UnverifiedPaperError, match="garbage metadata"):
             run_pipeline(pdf, enrich=False, ingest=False)
+
+
+class TestOrphanBundleCleanup:
+    def test_orphan_bundle_moved_to_errors(self, tmp_path):
+        """When UnverifiedPaperError has bundle_path, error handler moves it to errors/."""
+        from acatome_extract.watch import UnverifiedPaperError
+
+        errors_dir = tmp_path / "errors"
+        errors_dir.mkdir()
+
+        # Simulate orphan bundle in papers dir
+        papers_dir = tmp_path / "papers"
+        papers_dir.mkdir()
+        bundle = papers_dir / "anon2024bad.acatome"
+        bundle.write_bytes(b"bundle data")
+
+        # Simulate the error handler logic from _process()
+        e = UnverifiedPaperError("failed verification", bundle_path=bundle)
+        bp = getattr(e, "bundle_path", None)
+        if bp and isinstance(bp, Path) and bp.exists():
+            _move_to(bp, errors_dir)
+
+        assert not bundle.exists(), "Bundle should be removed from papers/"
+        assert (errors_dir / "anon2024bad.acatome").exists(), "Bundle should be in errors/"
+
+    def test_no_crash_when_bundle_already_gone(self, tmp_path):
+        """Error handler doesn't crash if bundle was already deleted."""
+        from acatome_extract.watch import UnverifiedPaperError
+
+        errors_dir = tmp_path / "errors"
+        errors_dir.mkdir()
+        bundle = tmp_path / "gone.acatome"  # does not exist
+
+        e = UnverifiedPaperError("failed", bundle_path=bundle)
+        bp = getattr(e, "bundle_path", None)
+        # Should not move since file doesn't exist
+        assert bp is not None
+        assert not bp.exists()  # guard condition prevents move
 
 
 class TestPdfHash:

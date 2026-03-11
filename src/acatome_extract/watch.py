@@ -42,6 +42,10 @@ def _pdf_hash(path: Path) -> str:
 class UnverifiedPaperError(Exception):
     """Raised when a paper fails metadata verification."""
 
+    def __init__(self, message: str, bundle_path: Path | None = None):
+        super().__init__(message)
+        self.bundle_path = bundle_path
+
 
 class _PdfHandler(FileSystemEventHandler):
     """Watchdog handler that queues new PDFs for processing."""
@@ -186,7 +190,8 @@ def run_pipeline(
             f"Slug: {result.get('slug', '?')}, "
             f"Title: {result.get('title', '?')!r}. "
             f"Move to inbox manually after review, or ingest with: "
-            f"acatome-store ingest {bundle_path}"
+            f"acatome-store ingest {bundle_path}",
+            bundle_path=bundle_path,
         )
 
     log.info(
@@ -367,6 +372,11 @@ def watch(
             _write_error(errors_dir, pdf, e)
             if not keep:
                 _move_to(pdf, errors_dir)
+            # Move orphan bundle out of papers/ on verification failure
+            bp = getattr(e, "bundle_path", None)
+            if bp and isinstance(bp, Path) and bp.exists():
+                _move_to(bp, errors_dir)
+                log.info(f"  moved orphan bundle to errors/: {bp.name}")
 
     # --- Backfill (newest first) ---
     if backfill:
