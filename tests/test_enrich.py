@@ -9,6 +9,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+
+def _has_sentence_transformers() -> bool:
+    try:
+        import sentence_transformers  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+_needs_embeddings = pytest.mark.skipif(
+    not _has_sentence_transformers(),
+    reason="sentence-transformers not installed",
+)
+
 from acatome_extract.bundle import read_bundle
 from acatome_extract.enrich import (
     _embed_blocks,
@@ -159,6 +173,7 @@ class TestSummarizeBlocks:
         assert result[0]["summaries"] == {}
 
 
+@_needs_embeddings
 class TestEnrichE2E:
     def test_enrich_embeddings_only(self, enrichable_bundle):
         """Enrich with Chroma default embeddings, no summarization."""
