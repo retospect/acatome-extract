@@ -267,7 +267,7 @@ def _marker_extract(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
             "section_path": list(current_section),
             "bbox": None,
             "embeddings": {},
-            "summary": None,
+            "summaries": {},
         }
 
         # Attach images referenced in this chunk
@@ -498,7 +498,7 @@ def _fitz_fallback(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
                     "section_path": list(current_section),
                     "bbox": None,
                     "embeddings": {},
-                    "summary": None,
+                    "summaries": {},
                 }
             )
 

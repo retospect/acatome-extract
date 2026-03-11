@@ -40,20 +40,16 @@ def read_bundle(path: str | Path) -> dict[str, Any]:
 
 
 def update_bundle(
+    data: dict[str, Any],
     path: str | Path,
-    update_fn: callable,
-) -> dict[str, Any]:
-    """Read-modify-write a bundle file atomically.
+) -> Path:
+    """Write an already-modified bundle dict back to disk.
 
     Args:
+        data: Bundle dict (header + blocks + enrichment_meta).
         path: Path to .acatome file.
-        update_fn: Function that takes bundle dict, mutates it, returns it.
 
     Returns:
-        Updated bundle dict.
+        Path to written file.
     """
-    path = Path(path)
-    data = read_bundle(path)
-    data = update_fn(data)
-    write_bundle(data, path)
-    return data
+    return write_bundle(data, path)

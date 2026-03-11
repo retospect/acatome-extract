@@ -18,6 +18,12 @@ def extract(
     no_verify: bool = typer.Option(
         False, "--no-verify", help="Skip metadata verification"
     ),
+    doc_type: str = typer.Option(
+        "article",
+        "--type",
+        "-t",
+        help="Document type: article, datasheet, manual, techreport, notes, other",
+    ),
 ):
     """Extract PDF(s) into .acatome bundle(s)."""
     from acatome_extract.pipeline import extract as do_extract
@@ -26,10 +32,10 @@ def extract(
     verify = not no_verify
 
     if path.is_file():
-        bundle = do_extract(path, output_dir=output, verify=verify)
+        bundle = do_extract(path, output_dir=output, verify=verify, doc_type=doc_type)
         typer.echo(f"✓ {bundle}")
     elif path.is_dir():
-        result = extract_dir(path, output_dir=output, verify=verify)
+        result = extract_dir(path, output_dir=output, verify=verify, doc_type=doc_type)
         typer.echo(
             f"✓ {len(result['succeeded'])} extracted, {len(result['failed'])} failed"
         )
@@ -43,10 +49,13 @@ def enrich(
     path: Path = typer.Argument(..., help=".acatome bundle or directory to enrich"),
     profile: str = typer.Option("default", "--profile", "-p", help="Embedding profile"),
     summarize: bool = typer.Option(
-        True, "--summarize/--no-summarize", help="Generate summaries"
+        False, "--summarize/--no-summarize", help="Generate LLM summaries (default: off)"
     ),
     summarizer: str = typer.Option(
         "", "--summarizer", help="litellm model spec (e.g. ollama/qwen3.5:9b)"
+    ),
+    skip_existing: bool = typer.Option(
+        False, "--skip-existing", help="Skip bundles that already have LLM summaries"
     ),
 ):
     """Add embeddings and summaries to a bundle (Phase 2)."""
@@ -59,19 +68,28 @@ def enrich(
     )
     logging.getLogger("acatome_extract.enrich").setLevel(logging.INFO)
 
+    from acatome_extract.bundle import read_bundle
     from acatome_extract.enrich import enrich as do_enrich
     from acatome_meta.config import load_config
 
     cfg = load_config()
     sm = summarizer or cfg.extract.enrich.summarizer
 
-    bundles = [path] if path.is_file() else sorted(path.glob("*.acatome"))
+    bundles = [path] if path.is_file() else sorted(path.rglob("*.acatome"))
+    skipped = 0
     for b in bundles:
         try:
+            if skip_existing and summarize:
+                data = read_bundle(b)
+                if _has_llm_summaries(data):
+                    skipped += 1
+                    continue
             do_enrich(b, profiles=[profile], summarize=summarize, summarizer=sm)
             typer.echo(f"✓ {b.name}")
         except Exception as e:
             typer.echo(f"✗ {b.name}: {e}", err=True)
+    if skipped:
+        typer.echo(f"⊘ {skipped} bundles skipped (already have LLM summaries)")
 
 
 @app.command()
@@ -84,7 +102,7 @@ def update_meta(
     from acatome_meta.lookup import lookup
     from acatome_meta.verify import verify_metadata
 
-    bundles = [path] if path.is_file() else sorted(path.glob("*.acatome"))
+    bundles = [path] if path.is_file() else sorted(path.rglob("*.acatome"))
     for b in bundles:
         try:
             data = read_bundle(b)
@@ -127,7 +145,7 @@ def strip(
     """Remove an embedding profile from a bundle."""
     from acatome_extract.bundle import read_bundle, update_bundle
 
-    bundles = [path] if path.is_file() else sorted(path.glob("*.acatome"))
+    bundles = [path] if path.is_file() else sorted(path.rglob("*.acatome"))
     for b in bundles:
         try:
             data = read_bundle(b)
@@ -217,6 +235,7 @@ def watch(
         False, "--no-backfill", help="Don't process existing PDFs on startup"
     ),
     no_enrich: bool = typer.Option(False, "--no-enrich", help="Skip enrichment"),
+    no_summarize: bool = typer.Option(True, "--no-summarize/--summarize", help="Skip LLM summaries (RAKE still runs at extract)"),
     no_ingest: bool = typer.Option(False, "--no-ingest", help="Skip store ingestion"),
     summarizer: str = typer.Option(
         "", "--summarizer", help="litellm model spec (e.g. ollama/qwen3.5:9b)"
@@ -257,12 +276,107 @@ def watch(
         recursive=not no_recursive,
         backfill=not no_backfill,
         enrich=not no_enrich,
+        summarize=not no_summarize,
         summarizer=summarizer,
         ingest=not no_ingest,
         keep=keep,
         user=user,
         debounce=debounce,
         use_polling=poll,
+    )
+
+
+def _has_llm_summaries(data: dict) -> bool:
+    """Check if any block in the bundle already has an LLM summary."""
+    for b in data.get("blocks", []):
+        for key in b.get("summaries", {}):
+            if key.startswith("llm:"):
+                return True
+    return False
+
+
+@app.command()
+def migrate(
+    path: Path = typer.Argument(..., help=".acatome bundle or directory to migrate"),
+    rake: bool = typer.Option(
+        True, "--rake/--no-rake", help="Add RAKE summaries to blocks that lack them"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would change without writing"
+    ),
+):
+    """Migrate bundles from old summary format to new summaries dict.
+
+    Converts block["summary"] → block["summaries"]["llm:unknown"] (or {} if null).
+    Optionally adds RAKE summaries (default: yes, instant).
+    """
+    from acatome_extract.bundle import read_bundle, update_bundle
+    from acatome_extract.pipeline import _rake_summarize_blocks
+
+    bundles = [path] if path.is_file() else sorted(path.rglob("*.acatome"))
+    if not bundles:
+        typer.echo("No .acatome files found.", err=True)
+        raise typer.Exit(1)
+
+    migrated = 0
+    already_ok = 0
+    raked = 0
+
+    for b in bundles:
+        try:
+            data = read_bundle(b)
+            changed = False
+
+            # Migrate blocks
+            for block in data.get("blocks", []):
+                if "summary" in block and "summaries" not in block:
+                    old = block.pop("summary")
+                    block["summaries"] = {}
+                    if old:
+                        block["summaries"]["llm:unknown"] = old
+                    changed = True
+                elif "summaries" not in block:
+                    block["summaries"] = {}
+                    if "summary" in block:
+                        block.pop("summary")
+                    changed = True
+
+            # Migrate enrichment_meta paper_summary → paper_summaries
+            em = data.get("enrichment_meta") or {}
+            if em.get("paper_summary") and not em.get("paper_summaries"):
+                em["paper_summaries"] = {"llm:unknown": em["paper_summary"]}
+                data["enrichment_meta"] = em
+                changed = True
+
+            # Add RAKE summaries
+            if rake:
+                blocks = data.get("blocks", [])
+                before_keys = sum(
+                    1 for bl in blocks if bl.get("summaries", {}).get("rake")
+                )
+                blocks = _rake_summarize_blocks(blocks)
+                after_keys = sum(
+                    1 for bl in blocks if bl.get("summaries", {}).get("rake")
+                )
+                if after_keys > before_keys:
+                    data["blocks"] = blocks
+                    changed = True
+                    raked += 1
+
+            if changed:
+                if not dry_run:
+                    update_bundle(data, b)
+                migrated += 1
+                typer.echo(f"✓ {b.name}")
+            else:
+                already_ok += 1
+        except Exception as e:
+            typer.echo(f"✗ {b.name}: {e}", err=True)
+
+    prefix = "[dry-run] " if dry_run else ""
+    typer.echo(
+        f"{prefix}{migrated} migrated, {already_ok} already current"
+        + (f", {raked} got RAKE summaries" if rake else "")
     )
 
 

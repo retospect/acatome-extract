@@ -35,11 +35,46 @@ bundle = extract("/path/to/paper.pdf")
 ## CLI
 
 ```bash
+# Extract (RAKE summaries included automatically, no LLM needed)
 acatome-extract extract paper.pdf
+acatome-extract extract --type datasheet TI_LM317.pdf   # non-article types
+
+# Enrich — embeddings only by default; add --summarize for LLM summaries
 acatome-extract enrich /path/to/bundle
+acatome-extract enrich --summarize /path/to/bundle       # enable LLM summaries
+acatome-extract enrich --summarize --skip-existing dir/   # incremental LLM pass
+
+# Watch — extract + embed + ingest; LLM summaries off by default
 acatome-extract watch ~/papers/inbox
+acatome-extract watch ~/papers/inbox --summarize          # enable LLM summaries
+
+# Migrate old bundles to new summaries dict format + add RAKE
+acatome-extract migrate ~/.acatome/papers
+acatome-extract migrate ~/.acatome/papers --dry-run       # preview changes
+
+# Supplements
 acatome-extract attach parent-slug supplement.pdf --name s1
 ```
+
+### Summaries
+
+Extraction always generates **RAKE** (extractive keyword) summaries — instant, no LLM required. LLM-based summaries are opt-in via `--summarize` and require an Ollama or litellm-compatible model.
+
+RAKE summaries are used as the default for search and display. To add LLM summaries later:
+
+```bash
+acatome-extract enrich --summarize --skip-existing ~/.acatome/papers
+```
+
+### Sidecar metadata
+
+Place a `<stem>.meta.json` alongside any PDF to override metadata:
+
+```json
+{"type": "datasheet", "title": "LM317 Regulator", "author": "Texas Instruments", "year": 2022}
+```
+
+Supported fields: `type`, `title`, `author` (string or list), `year`, `doi`, `abstract`, `journal`.
 
 ## Dependencies
 

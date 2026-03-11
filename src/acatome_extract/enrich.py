@@ -23,6 +23,21 @@ from acatome_extract.bundle import read_bundle, write_bundle
 # Block types that skip embeddings
 _SKIP_EMBED_TYPES = {"section_header", "title", "author", "equation", "junk"}
 
+_BLOCK_PROMPT_TEMPLATE = (
+    "Terse telegram-style summary, one line. "
+    "Always respond in English regardless of source language. "
+    "No articles, no filler ('This passage', 'The authors'). "
+    "Core claim first; detail after semicolon. "
+    "Must make sense if truncated at semicolon."
+)
+
+_PAPER_PROMPT_TEMPLATE = (
+    "3-5 telegram-style lines, broadest claim to finest detail. "
+    "Always respond in English regardless of source language. "
+    "No articles, no filler. Line 1 stands alone as summary. "
+    "Each subsequent line narrows scope."
+)
+
 
 def enrich(
     bundle_path: str | Path,
@@ -58,11 +73,23 @@ def enrich(
     # Step 6: Summarize
     if summarize:
         title = data.get("header", {}).get("title", "")
-        blocks = _summarize_blocks(blocks, summarizer, title=title)
-        paper_summary = _summarize_paper(blocks, summarizer)
+        summary_key = f"llm:{summarizer}"
+        blocks = _summarize_blocks(blocks, summarizer, title=title, summary_key=summary_key)
+        paper_summary = _summarize_paper(blocks, summarizer, summary_key=summary_key)
         data["enrichment_meta"] = data.get("enrichment_meta") or {}
         data["enrichment_meta"]["summarizer"] = summarizer
-        data["enrichment_meta"]["paper_summary"] = paper_summary
+        # Store paper summaries as a dict keyed by method
+        paper_summaries = data["enrichment_meta"].get("paper_summaries") or {}
+        paper_summaries[summary_key] = paper_summary
+        data["enrichment_meta"]["paper_summaries"] = paper_summaries
+        # Backward compat: also write paper_summary as best pick
+        from precis_summary import pick_best_summary
+        data["enrichment_meta"]["paper_summary"] = pick_best_summary(paper_summaries)
+        # Store prompt templates for provenance
+        data["enrichment_meta"].setdefault("summary_prompts", {})[summary_key] = {
+            "block": _BLOCK_PROMPT_TEMPLATE,
+            "paper": _PAPER_PROMPT_TEMPLATE,
+        }
 
     # Step 7: Embed
     for profile_name in profiles:
@@ -173,13 +200,22 @@ def _translate_slug(
 
 
 def _summarize_blocks(
-    blocks: list[dict[str, Any]], summarizer: str, *, title: str = ""
+    blocks: list[dict[str, Any]],
+    summarizer: str,
+    *,
+    title: str = "",
+    summary_key: str = "",
 ) -> list[dict[str, Any]]:
-    """Step 6a: Per-block one-line summaries."""
+    """Step 6a: Per-block one-line summaries.
+
+    Writes LLM summary into ``block["summaries"][summary_key]``.
+    """
     llm = _get_llm(summarizer)
     if llm is None:
         log.warning("  [summarize] no LLM available for %s", summarizer)
         return blocks
+
+    key = summary_key or f"llm:{summarizer}"
 
     eligible = [
         i
@@ -207,17 +243,13 @@ def _summarize_blocks(
         try:
             summary = llm(
                 f"{meta}"
-                "Terse telegram-style summary, one line. "
-                "Always respond in English regardless of source language. "
-                "No articles, no filler ('This passage', 'The authors'). "
-                "Core claim first; detail after semicolon. "
-                "Must make sense if truncated at semicolon.\n"
+                f"{_BLOCK_PROMPT_TEMPLATE}\n"
                 "Example: 'LOV2 Jα unfolds under blue light; "
                 "exposes caging interface for peptide sequences'\n\n"
                 f"{text[:2000]}"
             )
-            block["summary"] = summary.strip()
-            prev_summary = block["summary"]
+            block.setdefault("summaries", {})[key] = summary.strip()
+            prev_summary = summary.strip()
             done += 1
             if done % 10 == 0:
                 log.info("  [summarize] %d/%d blocks done", done, len(eligible))
@@ -229,13 +261,20 @@ def _summarize_blocks(
     return blocks
 
 
-def _summarize_paper(blocks: list[dict[str, Any]], summarizer: str) -> str:
+def _summarize_paper(
+    blocks: list[dict[str, Any]], summarizer: str, *, summary_key: str = ""
+) -> str:
     """Step 6b: Paper summary distilled directly from block summaries."""
     llm = _get_llm(summarizer)
     if llm is None:
         return ""
 
-    summaries = [b["summary"] for b in blocks if b.get("summary")]
+    key = summary_key or f"llm:{summarizer}"
+    summaries = [
+        b["summaries"][key]
+        for b in blocks
+        if b.get("summaries", {}).get(key)
+    ]
     if not summaries:
         return ""
 
@@ -243,10 +282,7 @@ def _summarize_paper(blocks: list[dict[str, Any]], summarizer: str) -> str:
     log.info("  [summarize] paper summary from %d block summaries", len(summaries))
     try:
         result = llm(
-            f"3-5 telegram-style lines, broadest claim to finest detail. "
-            f"Always respond in English regardless of source language. "
-            f"No articles, no filler. Line 1 stands alone as summary. "
-            f"Each subsequent line narrows scope.\n\n{combined[:4000]}"
+            f"{_PAPER_PROMPT_TEMPLATE}\n\n{combined[:4000]}"
         ).strip()
         log.info("  [summarize] paper summary done (%d chars)", len(result))
         return result

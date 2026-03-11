@@ -119,6 +119,7 @@ def run_pipeline(
     *,
     output_dir: Path | None = None,
     enrich: bool = True,
+    summarize: bool = True,
     summarizer: str = "",
     ingest: bool = True,
 ) -> dict[str, Any]:
@@ -202,7 +203,7 @@ def run_pipeline(
         log.info("  [enrich] embeddings + summaries...")
         cfg = load_config()
         sm = summarizer or cfg.extract.enrich.summarizer
-        do_enrich(bundle_path, profiles=["default"], summarize=True, summarizer=sm)
+        do_enrich(bundle_path, profiles=["default"], summarize=summarize, summarizer=sm)
         result["enriched"] = True
         log.info("  [enrich] done")
 
@@ -233,6 +234,7 @@ def watch(
     recursive: bool = True,
     backfill: bool = True,
     enrich: bool = True,
+    summarize: bool = False,
     summarizer: str = "",
     ingest: bool = True,
     keep: bool = False,
@@ -248,7 +250,8 @@ def watch(
         output_dir: Bundle output directory (default: ~/.acatome/papers/).
         recursive: Watch subdirectories (default True).
         backfill: Process existing PDFs on startup.
-        enrich: Run enrichment (summaries + embeddings).
+        enrich: Run enrichment (embeddings). LLM summaries off by default.
+        summarize: Run LLM summaries during enrichment (default False).
         summarizer: litellm model spec for enrichment.
         ingest: Ingest into store after extraction.
         keep: Don't move PDFs after processing (leave in place).
@@ -328,6 +331,7 @@ def watch(
                 pdf,
                 output_dir=output_dir,
                 enrich=enrich,
+                summarize=summarize,
                 summarizer=summarizer,
                 ingest=ingest,
             )

@@ -17,6 +17,7 @@ from acatome_extract.enrich import (
     _translate_slug,
     enrich,
 )
+from precis_summary import pick_best_summary
 
 
 @pytest.fixture
@@ -52,7 +53,7 @@ def enrichable_bundle(tmp_path) -> Path:
                 "section_path": ["1", "Introduction"],
                 "bbox": None,
                 "embeddings": {},
-                "summary": None,
+                "summaries": {},
             },
             {
                 "node_id": "doi:10.1038/test-p00-001",
@@ -62,7 +63,7 @@ def enrichable_bundle(tmp_path) -> Path:
                 "section_path": ["2", "Surface Codes"],
                 "bbox": None,
                 "embeddings": {},
-                "summary": None,
+                "summaries": {},
             },
             {
                 "node_id": "doi:10.1038/test-p00-002",
@@ -72,7 +73,7 @@ def enrichable_bundle(tmp_path) -> Path:
                 "section_path": ["3"],
                 "bbox": None,
                 "embeddings": {},
-                "summary": None,
+                "summaries": {},
             },
             {
                 "node_id": "doi:10.1038/test-p01-000",
@@ -82,7 +83,7 @@ def enrichable_bundle(tmp_path) -> Path:
                 "section_path": ["3", "Results"],
                 "bbox": None,
                 "embeddings": {},
-                "summary": None,
+                "summaries": {},
             },
         ],
         "enrichment_meta": None,
@@ -133,29 +134,29 @@ class TestEmbedBlocks:
 class TestSummarizeBlocks:
     def test_summarize_with_mock_llm(self):
         blocks = [
-            {"node_id": "a", "type": "text", "text": "A" * 100, "summary": None},
+            {"node_id": "a", "type": "text", "text": "A" * 100, "summaries": {}},
             {
                 "node_id": "b",
                 "type": "section_header",
                 "text": "Title",
-                "summary": None,
+                "summaries": {},
             },
-            {"node_id": "c", "type": "text", "text": "Short.", "summary": None},
+            {"node_id": "c", "type": "text", "text": "Short.", "summaries": {}},
         ]
 
         with patch("acatome_extract.enrich._get_llm") as mock_get:
             mock_llm = MagicMock(return_value="Test summary.")
             mock_get.return_value = mock_llm
 
-            result = _summarize_blocks(blocks, "ollama:test")
-            assert result[0]["summary"] == "Test summary."
-            assert result[1]["summary"] is None  # section_header
-            assert result[2]["summary"] is None  # too short
+            result = _summarize_blocks(blocks, "ollama:test", summary_key="llm:ollama:test")
+            assert result[0]["summaries"]["llm:ollama:test"] == "Test summary."
+            assert result[1]["summaries"] == {}  # section_header
+            assert result[2]["summaries"] == {}  # too short
 
     def test_summarize_no_llm(self):
-        blocks = [{"node_id": "a", "type": "text", "text": "A" * 100, "summary": None}]
+        blocks = [{"node_id": "a", "type": "text", "text": "A" * 100, "summaries": {}}]
         result = _summarize_blocks(blocks, "")
-        assert result[0]["summary"] is None
+        assert result[0]["summaries"] == {}
 
 
 class TestEnrichE2E:

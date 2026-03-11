@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import traceback
 from datetime import datetime, timezone
@@ -12,17 +13,27 @@ from acatome_meta.lookup import lookup
 from acatome_meta.pdf import extract_pdf_meta
 from acatome_meta.verify import verify_metadata
 
+from precis_summary import telegram_precis
+
 from acatome_extract.bundle import write_bundle
 from acatome_extract.ids import make_node_id, make_paper_id, make_slug
 from acatome_extract.marker import extract_blocks_marker
 
+# Block types that skip RAKE summarization (same as enrich skip list)
+_SKIP_SUMMARY_TYPES = {"section_header", "title", "author", "equation", "junk"}
+
 ACATOME_HOME = Path.home() / ".acatome"
+
+
+# Document types that skip metadata lookup (no CrossRef/S2).
+_LOCAL_DOC_TYPES = {"datasheet", "manual", "techreport", "notes", "other"}
 
 
 def extract(
     pdf_path: str | Path,
     output_dir: str | Path | None = None,
     verify: bool = True,
+    doc_type: str = "article",
 ) -> Path:
     """Extract a single PDF into a .acatome bundle.
 
@@ -32,6 +43,9 @@ def extract(
         pdf_path: Path to the PDF file.
         output_dir: Where to write the bundle. Defaults to ~/.acatome/papers/{first_letter}/.
         verify: Whether to verify metadata against PDF text.
+        doc_type: Document type — 'article' runs full metadata lookup;
+            'datasheet', 'manual', 'techreport', 'notes', 'other' use
+            embedded PDF metadata only.
 
     Returns:
         Path to the written .acatome bundle.
@@ -40,15 +54,39 @@ def extract(
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
+    # Step 0: Check for sidecar .meta.json
+    sidecar = _read_sidecar(pdf_path)
+    if sidecar.get("type"):
+        doc_type = sidecar["type"]
+
     # Step 1: PyMuPDF — metadata & DOI
     pdf_meta = extract_pdf_meta(pdf_path)
 
-    # Step 3: Header metadata (via acatome-meta cascade)
-    header = lookup(str(pdf_path))
+    # Step 3: Header metadata
+    if doc_type in _LOCAL_DOC_TYPES:
+        # Non-article: skip CrossRef/S2 lookup, use embedded PDF metadata
+        header = _local_header(pdf_path, pdf_meta, doc_type)
+    else:
+        header = lookup(str(pdf_path))
+
+    # Apply sidecar overrides (explicit user metadata wins)
+    for key in ("title", "year", "doi", "abstract", "journal"):
+        if sidecar.get(key):
+            header[key] = sidecar[key]
+    if sidecar.get("author"):
+        # Sidecar author can be string or list of strings
+        raw = sidecar["author"]
+        if isinstance(raw, str):
+            header["authors"] = [{"name": raw}]
+        elif isinstance(raw, list):
+            header["authors"] = [{"name": a} for a in raw]
+
+    # Override entry_type with the requested doc_type
+    header["entry_type"] = doc_type
 
     # Step 4: Verification
     verify_warnings: list[str] = []
-    if not verify:
+    if not verify or doc_type in _LOCAL_DOC_TYPES:
         verified = True
     elif header.get("first_pages_text"):
         verified, verify_warnings = verify_metadata(header, header["first_pages_text"])
@@ -71,6 +109,9 @@ def extract(
 
     # Step 2: Marker — structured content (falls back to fitz if Marker fails)
     blocks = extract_blocks_marker(pdf_path, paper_id)
+
+    # Step 2½: RAKE summaries (instant, no LLM)
+    blocks = _rake_summarize_blocks(blocks)
 
     # Build bundle
     bundle = _build_bundle(
@@ -104,6 +145,7 @@ def extract_dir(
     input_dir: str | Path,
     output_dir: str | Path | None = None,
     verify: bool = True,
+    doc_type: str = "article",
 ) -> dict[str, list[Path]]:
     """Extract all PDFs in a directory.
 
@@ -111,6 +153,7 @@ def extract_dir(
         input_dir: Directory containing PDF files.
         output_dir: Where to write bundles.
         verify: Whether to verify metadata.
+        doc_type: Document type (see :func:`extract`).
 
     Returns:
         Dict with 'succeeded' and 'failed' lists of paths.
@@ -123,13 +166,66 @@ def extract_dir(
 
     for pdf in pdfs:
         try:
-            bundle_path = extract(pdf, output_dir=output_dir, verify=verify)
+            bundle_path = extract(pdf, output_dir=output_dir, verify=verify, doc_type=doc_type)
             succeeded.append(bundle_path)
         except Exception as e:
             failed.append(pdf)
             _write_error(input_dir, pdf, e)
 
     return {"succeeded": succeeded, "failed": failed}
+
+
+def _read_sidecar(pdf_path: Path) -> dict[str, Any]:
+    """Read optional ``<stem>.meta.json`` sidecar alongside a PDF.
+
+    Returns empty dict if no sidecar exists or it's unreadable.
+    """
+    sidecar_path = pdf_path.with_suffix(".meta.json")
+    if not sidecar_path.is_file():
+        return {}
+    try:
+        return json.loads(sidecar_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _local_header(
+    pdf_path: Path, pdf_meta: dict[str, Any], doc_type: str
+) -> dict[str, Any]:
+    """Build header from embedded PDF metadata only (no network lookups).
+
+    Used for datasheets, manuals, tech reports, etc.
+    """
+    info = pdf_meta.get("info", {})
+    title = info.get("title", "") or pdf_path.stem.replace("_", " ").replace("-", " ")
+    author_str = info.get("author", "")
+    authors = [{"name": author_str}] if author_str else []
+
+    # Try to extract year from PDF creation date
+    year = None
+    creation_date = info.get("creationDate", "")
+    if creation_date:
+        clean = creation_date.replace("D:", "").strip()
+        if len(clean) >= 4 and clean[:4].isdigit():
+            yr = int(clean[:4])
+            if 1900 <= yr <= 2100:
+                year = yr
+
+    return {
+        "title": title,
+        "authors": authors,
+        "year": year,
+        "doi": pdf_meta.get("doi"),
+        "arxiv_id": None,
+        "journal": "",
+        "abstract": "",
+        "entry_type": doc_type,
+        "s2_id": None,
+        "source": "local",
+        "pdf_hash": pdf_meta["pdf_hash"],
+        "page_count": pdf_meta["page_count"],
+        "first_pages_text": pdf_meta.get("first_pages_text", ""),
+    }
 
 
 def _build_bundle(
@@ -168,6 +264,21 @@ def _build_bundle(
         "blocks": blocks,
         "enrichment_meta": None,
     }
+
+
+def _rake_summarize_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add RAKE keyword summaries to eligible blocks (instant, no LLM).
+
+    Populates ``summaries["rake"]`` for text blocks with ≥50 chars.
+    """
+    for block in blocks:
+        if block.get("type") in _SKIP_SUMMARY_TYPES:
+            continue
+        text = block.get("text", "").strip()
+        if len(text) < 50:
+            continue
+        block.setdefault("summaries", {})["rake"] = telegram_precis(text)
+    return blocks
 
 
 def _write_error(input_dir: Path, pdf: Path, error: Exception) -> None:
