@@ -18,10 +18,24 @@ PDF extraction and enrichment pipeline for scientific papers. Converts PDFs into
 uv pip install -e .
 ```
 
-With GPU acceleration:
+On **macOS/Linux** this includes Marker for structured PDF extraction.
+On **Windows** it installs with the lighter pymupdf (fitz) backend by default.
+To add Marker on Windows (requires C build tools):
+
+```bash
+uv pip install -e ".[marker]"
+```
+
+With GPU acceleration (embeddings + torch):
 
 ```bash
 uv pip install -e ".[gpu]"
+```
+
+Everything at once:
+
+```bash
+uv pip install -e ".[full]"
 ```
 
 ## Usage
