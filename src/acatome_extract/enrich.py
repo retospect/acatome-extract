@@ -370,18 +370,17 @@ def _get_llm(summarizer: str):
     Uses litellm's provider/model format (e.g. "ollama/qwen3.5:9b",
     "openai/gpt-4o-mini", "anthropic/claude-sonnet-4-20250514").
 
-    For ollama models, calls the ollama API directly (litellm drops
-    content from thinking models like qwen3.5).
+    For ollama models, remaps to ollama_chat/ so litellm uses
+    the /api/chat endpoint (which supports thinking and tool calling).
 
     Returns a function(prompt: str) -> str, or None if unavailable.
     """
     if not summarizer:
         return None
 
-    # Ollama models: call API directly to handle thinking models
+    # Ollama models: use litellm's chat endpoint (ollama_chat/)
     if summarizer.startswith("ollama/"):
-        model_name = summarizer[len("ollama/") :]
-        return _make_ollama_llm(model_name)
+        summarizer = "ollama_chat/" + summarizer[len("ollama/"):]
 
     # All other providers: use litellm
     _ensure_api_keys_in_env()

@@ -270,12 +270,16 @@ def watch(
     poll: bool = typer.Option(
         False, "--poll", help="Use polling observer (for network mounts)"
     ),
+    tag: list[str] = typer.Option(
+        [], "--tag", "-T", help="Tag(s) to apply to all ingested papers (repeatable). "
+        "Subdirectory names are also added as tags automatically."
+    ),
 ):
     """Watch a directory and auto-ingest new PDFs.
 
     Monitors for new PDF files and runs: extract → enrich → ingest.
     Processed PDFs move to completed/, failures to errors/.
-    Recursive by default.
+    Recursive by default. Subdirectory names become tags automatically.
     """
     import logging
 
@@ -301,6 +305,7 @@ def watch(
         ingest=not no_ingest,
         keep=keep,
         user=user,
+        tags=tag or None,
         debounce=debounce,
         use_polling=poll,
     )

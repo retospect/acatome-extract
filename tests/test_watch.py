@@ -12,6 +12,7 @@ from acatome_extract.watch import (
     _log_completed,
     _move_to,
     _pdf_hash,
+    _tags_from_path,
     _wait_stable,
     _write_error,
 )
@@ -279,6 +280,48 @@ class TestLogCompleted:
         assert len(reto_lines) == 2
         bob_lines = [l for l in content.strip().split("\n") if "bob" in l]
         assert len(bob_lines) == 1
+
+
+class TestTagsFromPath:
+    def test_subdir_becomes_tag(self, tmp_path):
+        watch_dir = tmp_path / "inbox"
+        watch_dir.mkdir()
+        sub = watch_dir / "chlorine-evolution"
+        sub.mkdir()
+        pdf = sub / "paper.pdf"
+        pdf.write_bytes(b"data")
+        assert _tags_from_path(pdf, watch_dir) == ["chlorine-evolution"]
+
+    def test_nested_subdirs(self, tmp_path):
+        watch_dir = tmp_path / "inbox"
+        sub = watch_dir / "electrocatalysis" / "2024"
+        sub.mkdir(parents=True)
+        pdf = sub / "paper.pdf"
+        pdf.write_bytes(b"data")
+        assert _tags_from_path(pdf, watch_dir) == ["electrocatalysis", "2024"]
+
+    def test_root_dir_no_tags(self, tmp_path):
+        watch_dir = tmp_path / "inbox"
+        watch_dir.mkdir()
+        pdf = watch_dir / "paper.pdf"
+        pdf.write_bytes(b"data")
+        assert _tags_from_path(pdf, watch_dir) == []
+
+    def test_skips_special_dirs(self, tmp_path):
+        watch_dir = tmp_path / "inbox"
+        sub = watch_dir / "completed" / "old"
+        sub.mkdir(parents=True)
+        pdf = sub / "paper.pdf"
+        pdf.write_bytes(b"data")
+        assert _tags_from_path(pdf, watch_dir) == ["old"]
+
+    def test_outside_watch_dir(self, tmp_path):
+        watch_dir = tmp_path / "inbox"
+        watch_dir.mkdir()
+        pdf = tmp_path / "elsewhere" / "paper.pdf"
+        pdf.parent.mkdir()
+        pdf.write_bytes(b"data")
+        assert _tags_from_path(pdf, watch_dir) == []
 
 
 class TestShouldSkip:

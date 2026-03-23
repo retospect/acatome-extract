@@ -126,6 +126,7 @@ def run_pipeline(
     summarize: bool = True,
     summarizer: str = "",
     ingest: bool = True,
+    tags: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run full pipeline on a single PDF. Returns result dict.
 
@@ -223,13 +224,27 @@ def run_pipeline(
 
         log.info("  [ingest] storing...")
         store = Store()
-        ref_id = store.ingest(bundle_path)
+        ref_id = store.ingest(bundle_path, tags=tags or [])
         store.close()
         result["ref_id"] = ref_id
         result["ingested"] = True
         log.info("  [ingest] ref_id=%d", ref_id)
 
     return result
+
+
+def _tags_from_path(pdf_path: Path, watch_dir: Path) -> list[str]:
+    """Derive tags from subdirectory names between watch_dir and pdf.
+
+    Example: watch_dir/chlorine-evolution/2024/paper.pdf → ["chlorine-evolution", "2024"]
+    Skips special directories: completed, errors, duplicates.
+    """
+    try:
+        rel = pdf_path.resolve().parent.relative_to(watch_dir.resolve())
+    except ValueError:
+        return []
+    skip = {"completed", "errors", "duplicates"}
+    return [p for p in rel.parts if p.lower() not in skip]
 
 
 def watch(
@@ -244,6 +259,7 @@ def watch(
     ingest: bool = True,
     keep: bool = False,
     user: str = "",
+    tags: list[str] | None = None,
     debounce: float = DEFAULT_DEBOUNCE,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
     use_polling: bool = False,
@@ -260,6 +276,7 @@ def watch(
         summarizer: litellm model spec for enrichment.
         ingest: Ingest into store after extraction.
         keep: Don't move PDFs after processing (leave in place).
+        tags: Extra tags to apply to all ingested papers.
         debounce: Seconds to wait for file stability.
         poll_interval: Polling interval for fallback observer.
         use_polling: Force polling observer (for network mounts).
@@ -331,6 +348,12 @@ def watch(
 
         t0 = time.monotonic()
         try:
+            # Derive tags: CLI --tag flags + subdirectory names
+            dir_tags = _tags_from_path(pdf, watch_dir)
+            combined_tags = sorted(set((tags or []) + dir_tags))
+            if combined_tags:
+                log.info("  tags: %s", ", ".join(combined_tags))
+
             log.info("  extracting...")
             result = run_pipeline(
                 pdf,
@@ -339,6 +362,7 @@ def watch(
                 summarize=summarize,
                 summarizer=summarizer,
                 ingest=ingest,
+                tags=combined_tags or None,
             )
 
             slug = result.get("slug", pdf.stem)
