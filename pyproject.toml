@@ -1,6 +1,6 @@
 [project]
 name = "acatome-extract"
-version = "0.3.0"
+version = "0.3.1"
 description = "PDF extraction pipeline for scientific papers"
 requires-python = ">=3.11"
 license = "GPL-3.0-or-later"
