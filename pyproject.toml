@@ -60,6 +60,7 @@ dev = [
 
 [project.scripts]
 acatome-extract = "acatome_extract.cli:app"
+am = "acatome_extract.am:app"
 
 [build-system]
 requires = ["hatchling"]
