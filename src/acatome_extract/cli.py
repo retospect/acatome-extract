@@ -311,6 +311,86 @@ def watch(
     )
 
 
+@app.command()
+def note(
+    slug: str = typer.Argument(..., help="Paper slug (e.g. zhu2023selective)"),
+    content: str = typer.Argument("", help="Note text (required unless --list)"),
+    chunk: int | None = typer.Option(
+        None, "--chunk", "-c", help="Block index for chunk-level note"
+    ),
+    title: str = typer.Option("", "--title", "-t", help="Note title"),
+    tag: list[str] = typer.Option([], "--tag", "-T", help="Note tags (repeatable)"),
+    user: str = typer.Option("", "--user", "-u", help="Note author (default: OS user)"),
+    list_notes: bool = typer.Option(
+        False, "--list", "-l", help="List notes for this paper instead of adding"
+    ),
+):
+    """Add a note to a paper or chunk.
+
+    Examples:
+      acatome-extract note zhu2023 "Key finding: 3x selectivity improvement"
+      acatome-extract note zhu2023 "Great figure" --chunk 14
+      acatome-extract note zhu2023 --list
+    """
+    import getpass
+
+    from acatome_store.store import Store
+
+    store = Store()
+    origin = user or getpass.getuser()
+
+    paper = store.get(slug)
+    if paper is None:
+        typer.echo(f"Paper not found: {slug}", err=True)
+        raise typer.Exit(1)
+
+    ref_id = paper.get("ref_id") or paper.get("id")
+    paper_slug = paper.get("slug", slug)
+
+    if list_notes:
+        notes = store.get_notes(ref_id=ref_id)
+        if not notes:
+            typer.echo(f"No notes for {paper_slug}")
+            return
+        typer.echo(f"{len(notes)} note(s) for {paper_slug}:")
+        for n in notes:
+            nid = n.get("id")
+            orig = n.get("origin", "?")
+            block = n.get("block_node_id")
+            text = n.get("content", "")
+            created = n.get("created_at", "")
+            prefix = f"  [{nid}] ({orig}, {created})"
+            if block:
+                prefix += f" chunk"
+            typer.echo(f"{prefix}: {text}")
+        return
+
+    if not content:
+        typer.echo("Note text required. Use --list to view notes.", err=True)
+        raise typer.Exit(1)
+
+    block_node_id = None
+    if chunk is not None:
+        blocks = store.get_blocks(slug, block_type="text")
+        target = [b for b in blocks if b.get("block_index") == chunk]
+        if not target:
+            typer.echo(f"Chunk #{chunk} not found in {paper_slug}", err=True)
+            raise typer.Exit(1)
+        block_node_id = target[0].get("node_id")
+
+    note_id = store.add_note(
+        content,
+        ref_id=ref_id,
+        block_node_id=block_node_id,
+        title=title or None,
+        tags=tag or None,
+        origin=origin,
+    )
+
+    target_str = f"{paper_slug}#{chunk}" if chunk is not None else paper_slug
+    typer.echo(f"📝 Note #{note_id} on {target_str} (by {origin})")
+
+
 def _has_llm_summaries(data: dict) -> bool:
     """Check if any block in the bundle already has an LLM summary."""
     for b in data.get("blocks", []):
