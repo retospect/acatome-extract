@@ -411,12 +411,18 @@ def watch(
         # Sort by modification time, newest first
         existing.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         if existing:
-            log.info(f"backfill: {len(existing)} existing PDF(s) (newest first)")
+            log.info(f"backfill: scanning {len(existing)} existing PDF(s) ...")
+            skipped = 0
             for i, pdf in enumerate(existing, 1):
                 if stop_event.is_set():
                     break
+                if _should_skip(pdf):
+                    skipped += 1
+                    continue
                 log.info(f"[{i}/{len(existing)}] {pdf.name}")
                 _process(pdf)
+            if skipped:
+                log.info(f"backfill: {skipped} already ingested, skipped")
 
     # --- Start watcher ---
     handler = _PdfHandler(_process)
