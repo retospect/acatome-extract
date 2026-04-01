@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -187,7 +186,9 @@ class TestOrphanBundleCleanup:
             _move_to(bp, errors_dir)
 
         assert not bundle.exists(), "Bundle should be removed from papers/"
-        assert (errors_dir / "anon2024bad.acatome").exists(), "Bundle should be in errors/"
+        assert (errors_dir / "anon2024bad.acatome").exists(), (
+            "Bundle should be in errors/"
+        )
 
     def test_no_crash_when_bundle_already_gone(self, tmp_path):
         """Error handler doesn't crash if bundle was already deleted."""
@@ -327,7 +328,6 @@ class TestTagsFromPath:
 class TestShouldSkip:
     def test_skips_completed_dir(self, tmp_path):
         """Files inside completed/ should be skipped."""
-        from acatome_extract.watch import _PdfHandler
 
         completed = tmp_path / "completed"
         completed.mkdir()

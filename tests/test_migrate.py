@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-import gzip
-import json
 from pathlib import Path
-
-import pytest
 
 from acatome_extract.bundle import read_bundle, write_bundle
 from acatome_extract.cli import _has_llm_summaries
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -84,6 +79,7 @@ class TestMigrate:
             [{"node_id": "a", "type": "text", "text": "Short.", "summary": None}],
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()
@@ -110,6 +106,7 @@ class TestMigrate:
             ],
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()
@@ -136,6 +133,7 @@ class TestMigrate:
             ],
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()
@@ -162,6 +160,7 @@ class TestMigrate:
             ],
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()
@@ -191,6 +190,7 @@ class TestMigrate:
             ],
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()
@@ -209,6 +209,7 @@ class TestMigrate:
             [{"node_id": "a", "type": "text", "text": "Short.", "summary": None}],
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()
@@ -229,6 +230,7 @@ class TestMigrate:
             em={"summarizer": "ollama/qwen3.5:9b", "paper_summary": "Paper overview"},
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()
@@ -252,6 +254,7 @@ class TestMigrate:
             [{"node_id": "b", "type": "text", "text": "Y", "summary": "Old"}],
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()
@@ -269,6 +272,7 @@ class TestMigrate:
             [{"node_id": "a", "type": "text", "text": "X", "summary": None}],
         )
         from typer.testing import CliRunner
+
         from acatome_extract.cli import app
 
         runner = CliRunner()

@@ -8,8 +8,6 @@ across chunk boundaries.
 
 from __future__ import annotations
 
-import re
-
 # Default separators, tried in order (prefer paragraph → line → sentence → word)
 DEFAULT_SEPARATORS: list[str] = ["\n\n", "\n", ". ", ", ", " "]
 

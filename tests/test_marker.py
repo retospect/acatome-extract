@@ -59,9 +59,21 @@ class TestJunkHeadingRegex:
 class TestMarkJunk:
     def test_junk_heading_and_followers(self):
         blocks = [
-            {"type": "section_header", "text": "OPEN ACCESS", "section_path": ["OPEN ACCESS"]},
-            {"type": "text", "text": "Some boilerplate.", "section_path": ["OPEN ACCESS"]},
-            {"type": "section_header", "text": "Introduction", "section_path": ["Introduction"]},
+            {
+                "type": "section_header",
+                "text": "OPEN ACCESS",
+                "section_path": ["OPEN ACCESS"],
+            },
+            {
+                "type": "text",
+                "text": "Some boilerplate.",
+                "section_path": ["OPEN ACCESS"],
+            },
+            {
+                "type": "section_header",
+                "text": "Introduction",
+                "section_path": ["Introduction"],
+            },
             {"type": "text", "text": "Real content.", "section_path": ["Introduction"]},
         ]
         result = _mark_junk(blocks)
@@ -72,14 +84,34 @@ class TestMarkJunk:
 
     def test_multiple_junk_sections(self):
         blocks = [
-            {"type": "section_header", "text": "OPEN ACCESS", "section_path": ["OPEN ACCESS"]},
+            {
+                "type": "section_header",
+                "text": "OPEN ACCESS",
+                "section_path": ["OPEN ACCESS"],
+            },
             {"type": "text", "text": "OA text.", "section_path": ["OPEN ACCESS"]},
-            {"type": "section_header", "text": "COPYRIGHT", "section_path": ["COPYRIGHT"]},
+            {
+                "type": "section_header",
+                "text": "COPYRIGHT",
+                "section_path": ["COPYRIGHT"],
+            },
             {"type": "text", "text": "Copyright text.", "section_path": ["COPYRIGHT"]},
-            {"type": "section_header", "text": "CITATION", "section_path": ["CITATION"]},
+            {
+                "type": "section_header",
+                "text": "CITATION",
+                "section_path": ["CITATION"],
+            },
             {"type": "text", "text": "Citation text.", "section_path": ["CITATION"]},
-            {"type": "section_header", "text": "Introduction", "section_path": ["Introduction"]},
-            {"type": "text", "text": "Actual content.", "section_path": ["Introduction"]},
+            {
+                "type": "section_header",
+                "text": "Introduction",
+                "section_path": ["Introduction"],
+            },
+            {
+                "type": "text",
+                "text": "Actual content.",
+                "section_path": ["Introduction"],
+            },
         ]
         result = _mark_junk(blocks)
         for i in range(6):
@@ -89,7 +121,11 @@ class TestMarkJunk:
 
     def test_no_junk_when_no_frontmatter(self):
         blocks = [
-            {"type": "section_header", "text": "Introduction", "section_path": ["Introduction"]},
+            {
+                "type": "section_header",
+                "text": "Introduction",
+                "section_path": ["Introduction"],
+            },
             {"type": "text", "text": "Content.", "section_path": ["Introduction"]},
             {"type": "section_header", "text": "Methods", "section_path": ["Methods"]},
             {"type": "text", "text": "More content.", "section_path": ["Methods"]},
@@ -99,11 +135,31 @@ class TestMarkJunk:
 
     def test_junk_does_not_leak_past_real_heading(self):
         blocks = [
-            {"type": "section_header", "text": "REVIEWED BY Someone", "section_path": ["REVIEWED BY Someone"]},
-            {"type": "text", "text": "Reviewer info.", "section_path": ["REVIEWED BY Someone"]},
-            {"type": "section_header", "text": "1. Introduction", "section_path": ["1. Introduction"]},
-            {"type": "text", "text": "Real intro.", "section_path": ["1. Introduction"]},
-            {"type": "text", "text": "More intro.", "section_path": ["1. Introduction"]},
+            {
+                "type": "section_header",
+                "text": "REVIEWED BY Someone",
+                "section_path": ["REVIEWED BY Someone"],
+            },
+            {
+                "type": "text",
+                "text": "Reviewer info.",
+                "section_path": ["REVIEWED BY Someone"],
+            },
+            {
+                "type": "section_header",
+                "text": "1. Introduction",
+                "section_path": ["1. Introduction"],
+            },
+            {
+                "type": "text",
+                "text": "Real intro.",
+                "section_path": ["1. Introduction"],
+            },
+            {
+                "type": "text",
+                "text": "More intro.",
+                "section_path": ["1. Introduction"],
+            },
         ]
         result = _mark_junk(blocks)
         assert result[0]["type"] == "junk"
@@ -115,7 +171,11 @@ class TestMarkJunk:
     def test_preserves_block_text(self):
         """Junk detection changes type but preserves text."""
         blocks = [
-            {"type": "section_header", "text": "COPYRIGHT", "section_path": ["COPYRIGHT"]},
+            {
+                "type": "section_header",
+                "text": "COPYRIGHT",
+                "section_path": ["COPYRIGHT"],
+            },
             {"type": "text", "text": "© 2025 Authors", "section_path": ["COPYRIGHT"]},
         ]
         result = _mark_junk(blocks)

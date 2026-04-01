@@ -5,18 +5,17 @@ from __future__ import annotations
 import json
 import shutil
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from acatome_meta.lookup import lookup
 from acatome_meta.pdf import extract_pdf_meta
 from acatome_meta.verify import verify_metadata
-
 from precis_summary import telegram_precis
 
 from acatome_extract.bundle import write_bundle
-from acatome_extract.ids import make_node_id, make_paper_id, make_slug
+from acatome_extract.ids import make_paper_id, make_slug
 from acatome_extract.marker import extract_blocks_marker
 
 # Block types that skip RAKE summarization (same as enrich skip list)
@@ -166,7 +165,9 @@ def extract_dir(
 
     for pdf in pdfs:
         try:
-            bundle_path = extract(pdf, output_dir=output_dir, verify=verify, doc_type=doc_type)
+            bundle_path = extract(
+                pdf, output_dir=output_dir, verify=verify, doc_type=doc_type
+            )
             succeeded.append(bundle_path)
         except Exception as e:
             failed.append(pdf)
@@ -238,7 +239,7 @@ def _build_bundle(
     verify_warnings: list[str],
 ) -> dict[str, Any]:
     """Assemble the .acatome bundle dict."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     return {
         "header": {
@@ -287,7 +288,5 @@ def _write_error(input_dir: Path, pdf: Path, error: Exception) -> None:
     errors_dir.mkdir(exist_ok=True)
     error_file = errors_dir / f"{pdf.stem}.error.txt"
     error_file.write_text(
-        f"PDF: {pdf.name}\n"
-        f"Error: {error}\n\n"
-        f"Traceback:\n{traceback.format_exc()}"
+        f"PDF: {pdf.name}\nError: {error}\n\nTraceback:\n{traceback.format_exc()}"
     )

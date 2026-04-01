@@ -50,15 +50,15 @@ def extract(
                 typer.echo(f"  [{i}/{len(pdfs)}] ⏭ {pdf.name} (bundle exists)")
                 continue
             try:
-                bundle = do_extract(pdf, output_dir=output, verify=verify, doc_type=doc_type)
+                bundle = do_extract(
+                    pdf, output_dir=output, verify=verify, doc_type=doc_type
+                )
                 succeeded += 1
                 typer.echo(f"  [{i}/{len(pdfs)}] ✓ {pdf.name} → {bundle.name}")
             except Exception as e:
                 failed += 1
                 typer.echo(f"  [{i}/{len(pdfs)}] ✗ {pdf.name}: {e}", err=True)
-        typer.echo(
-            f"\nDone: {succeeded} extracted, {skipped} skipped, {failed} failed"
-        )
+        typer.echo(f"\nDone: {succeeded} extracted, {skipped} skipped, {failed} failed")
     else:
         typer.echo(f"Error: {path} not found", err=True)
         raise typer.Exit(1)
@@ -69,7 +69,9 @@ def enrich(
     path: Path = typer.Argument(..., help=".acatome bundle or directory to enrich"),
     profile: str = typer.Option("default", "--profile", "-p", help="Embedding profile"),
     summarize: bool = typer.Option(
-        False, "--summarize/--no-summarize", help="Generate LLM summaries (default: off)"
+        False,
+        "--summarize/--no-summarize",
+        help="Generate LLM summaries (default: off)",
     ),
     summarizer: str = typer.Option(
         "", "--summarizer", help="litellm model spec (e.g. ollama/qwen3.5:9b)"
@@ -88,9 +90,10 @@ def enrich(
     )
     logging.getLogger("acatome_extract.enrich").setLevel(logging.INFO)
 
+    from acatome_meta.config import load_config
+
     from acatome_extract.bundle import read_bundle
     from acatome_extract.enrich import enrich as do_enrich
-    from acatome_meta.config import load_config
 
     cfg = load_config()
     sm = summarizer or cfg.extract.enrich.summarizer
@@ -118,9 +121,10 @@ def update_meta(
     no_verify: bool = typer.Option(False, "--no-verify", help="Skip verification"),
 ):
     """Re-run metadata lookup on existing bundle(s)."""
-    from acatome_extract.bundle import read_bundle, update_bundle
     from acatome_meta.lookup import lookup
     from acatome_meta.verify import verify_metadata
+
+    from acatome_extract.bundle import read_bundle, update_bundle
 
     bundles = [path] if path.is_file() else sorted(path.rglob("*.acatome"))
     for b in bundles:
@@ -199,7 +203,6 @@ def attach(
     Auto-detects supplement name from filename: paper_S1.pdf → "s1".
     Everything after the last '_' before .pdf becomes the supplement name.
     """
-    import re
 
     from acatome_extract.pipeline import extract as do_extract
 
@@ -220,8 +223,9 @@ def attach(
     bundle = do_extract(pdf, output_dir=output)
 
     if not no_enrich:
-        from acatome_extract.enrich import enrich as do_enrich
         from acatome_meta.config import load_config
+
+        from acatome_extract.enrich import enrich as do_enrich
 
         cfg = load_config()
         sm = summarizer or cfg.extract.enrich.summarizer
@@ -255,7 +259,11 @@ def watch(
         False, "--no-backfill", help="Don't process existing PDFs on startup"
     ),
     no_enrich: bool = typer.Option(False, "--no-enrich", help="Skip enrichment"),
-    no_summarize: bool = typer.Option(True, "--no-summarize/--summarize", help="Skip LLM summaries (RAKE still runs at extract)"),
+    no_summarize: bool = typer.Option(
+        True,
+        "--no-summarize/--summarize",
+        help="Skip LLM summaries (RAKE still runs at extract)",
+    ),
     no_ingest: bool = typer.Option(False, "--no-ingest", help="Skip store ingestion"),
     summarizer: str = typer.Option(
         "", "--summarizer", help="litellm model spec (e.g. ollama/qwen3.5:9b)"
@@ -271,8 +279,11 @@ def watch(
         False, "--poll", help="Use polling observer (for network mounts)"
     ),
     tag: list[str] = typer.Option(
-        [], "--tag", "-T", help="Tag(s) to apply to all ingested papers (repeatable). "
-        "Subdirectory names are also added as tags automatically."
+        [],
+        "--tag",
+        "-T",
+        help="Tag(s) to apply to all ingested papers (repeatable). "
+        "Subdirectory names are also added as tags automatically.",
     ),
 ):
     """Watch a directory and auto-ingest new PDFs.
@@ -361,7 +372,7 @@ def note(
             created = n.get("created_at", "")
             prefix = f"  [{nid}] ({orig}, {created})"
             if block:
-                prefix += f" chunk"
+                prefix += " chunk"
             typer.echo(f"{prefix}: {text}")
         return
 

@@ -9,8 +9,6 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 app = typer.Typer(
@@ -23,12 +21,18 @@ app = typer.Typer(
 @app.command()
 def main(
     slug: str = typer.Argument(..., help="Paper slug (e.g. fujii2024charge)"),
-    page: Optional[int] = typer.Argument(None, help="Page number to open at"),
+    page: int | None = typer.Argument(None, help="Page number to open at"),
     note_text: str = typer.Option("", "--note", "-n", help="Add a note to the paper"),
-    chunk: Optional[int] = typer.Option(None, "--chunk", "-c", help="Block index for chunk-level note"),
-    list_notes: bool = typer.Option(False, "--list", "-l", help="List notes for this paper"),
+    chunk: int | None = typer.Option(
+        None, "--chunk", "-c", help="Block index for chunk-level note"
+    ),
+    list_notes: bool = typer.Option(
+        False, "--list", "-l", help="List notes for this paper"
+    ),
     user: str = typer.Option("", "--user", "-u", help="Note author (default: OS user)"),
-    no_open: bool = typer.Option(False, "--no-open", help="Don't open the PDF (just add note/list)"),
+    no_open: bool = typer.Option(
+        False, "--no-open", help="Don't open the PDF (just add note/list)"
+    ),
 ):
     """Open a paper PDF, optionally at a specific page.
 

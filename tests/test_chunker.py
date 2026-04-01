@@ -37,7 +37,7 @@ class TestSplitText:
             # (overlap means shared content)
             assert any(
                 word in result[i + 1] for word in tail.split() if len(word) > 3
-            ), f"No overlap between chunk {i} and {i+1}"
+            ), f"No overlap between chunk {i} and {i + 1}"
 
     def test_sentence_splitting(self):
         text = "First sentence. Second sentence. Third sentence. Fourth sentence."

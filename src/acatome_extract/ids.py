@@ -57,11 +57,11 @@ def make_slug(authors: list[dict], year: int | None, title: str) -> str:
 
     # First content word from title
     # Transliterate first, then extract ASCII words
-    ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
-    words = re.findall(r"[a-z]+", ascii_title.lower())
-    keyword = next(
-        (w for w in words if w not in STOPWORDS), words[0] if words else ""
+    ascii_title = (
+        unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
     )
+    words = re.findall(r"[a-z]+", ascii_title.lower())
+    keyword = next((w for w in words if w not in STOPWORDS), words[0] if words else "")
 
     # Non-Latin titles may yield no ASCII words — use short hash
     if not keyword:

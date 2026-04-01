@@ -14,12 +14,12 @@ import shutil
 import signal
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock
 from typing import Any
 
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
@@ -203,8 +203,9 @@ def run_pipeline(
 
     # --- enrich (skip for shared bundles — already enriched) ---
     if enrich and not result.get("shared"):
-        from acatome_extract.enrich import enrich as do_enrich
         from acatome_meta.config import load_config
+
+        from acatome_extract.enrich import enrich as do_enrich
 
         log.info("  [enrich] embeddings + summaries...")
         cfg = load_config()
@@ -504,7 +505,7 @@ def _log_completed(
     Grep example: grep 'reto' completed/ingest.log
     """
     log_file = completed_dir / "ingest.log"
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     slug = result.get("slug", "")
     doi = result.get("doi", "")
     ref_id = result.get("ref_id", "")
@@ -519,7 +520,7 @@ def _write_error(errors_dir: Path, pdf: Path, error: Exception) -> None:
     error_file = errors_dir / f"{pdf.stem}.error.txt"
     error_file.write_text(
         f"PDF: {pdf.name}\n"
-        f"Time: {datetime.now(timezone.utc).isoformat()}\n"
+        f"Time: {datetime.now(UTC).isoformat()}\n"
         f"Error: {error}\n\n"
         f"Traceback:\n{traceback.format_exc()}"
     )

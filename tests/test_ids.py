@@ -64,7 +64,9 @@ class TestMakeSlug:
         assert len(slug) > len("anon2023")  # has a keyword hash
 
     def test_mixed_cjk_english_title(self):
-        slug = make_slug([{"name": "Li, Wei"}], 2024, "新型 Catalyst Design for CO2 Reduction")
+        slug = make_slug(
+            [{"name": "Li, Wei"}], 2024, "新型 Catalyst Design for CO2 Reduction"
+        )
         # "catalyst" is first ASCII content word (skips stopword "for")
         assert slug == "li2024catalyst"
 

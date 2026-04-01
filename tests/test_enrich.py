@@ -13,6 +13,7 @@ import pytest
 def _has_sentence_transformers() -> bool:
     try:
         import sentence_transformers  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -23,6 +24,7 @@ _needs_embeddings = pytest.mark.skipif(
     reason="sentence-transformers not installed",
 )
 
+
 from acatome_extract.bundle import read_bundle
 from acatome_extract.enrich import (
     _embed_blocks,
@@ -31,7 +33,6 @@ from acatome_extract.enrich import (
     _translate_slug,
     enrich,
 )
-from precis_summary import pick_best_summary
 
 
 @pytest.fixture
@@ -162,7 +163,9 @@ class TestSummarizeBlocks:
             mock_llm = MagicMock(return_value="Test summary.")
             mock_get.return_value = mock_llm
 
-            result = _summarize_blocks(blocks, "ollama:test", summary_key="llm:ollama:test")
+            result = _summarize_blocks(
+                blocks, "ollama:test", summary_key="llm:ollama:test"
+            )
             assert result[0]["summaries"]["llm:ollama:test"] == "Test summary."
             assert result[1]["summaries"] == {}  # section_header
             assert result[2]["summaries"] == {}  # too short

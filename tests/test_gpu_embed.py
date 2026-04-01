@@ -51,9 +51,9 @@ class TestSentenceTransformerDefault:
         embs = minilm_model.encode(texts, normalize_embeddings=True)
         cos_01 = float(np.dot(embs[0], embs[1]))
         cos_02 = float(np.dot(embs[0], embs[2]))
-        assert (
-            cos_01 > cos_02
-        ), f"Expected quantum↔surface ({cos_01:.3f}) > quantum↔weather ({cos_02:.3f})"
+        assert cos_01 > cos_02, (
+            f"Expected quantum↔surface ({cos_01:.3f}) > quantum↔weather ({cos_02:.3f})"
+        )
 
     def test_truncation_mechanics(self, minilm_model):
         """Verify truncation + renormalization produces valid vectors.
@@ -135,6 +135,7 @@ class TestEnrichWithST:
     def test_get_embedder_st(self):
         """Verify _get_embedder returns a callable for sentence-transformers provider."""
         from acatome_meta.config import EmbedProfile
+
         from acatome_extract.enrich import _get_embedder
 
         profile = EmbedProfile(
@@ -153,6 +154,7 @@ class TestEnrichWithST:
     def test_get_embedder_st_with_truncation(self):
         """Verify index_dim truncation works."""
         from acatome_meta.config import EmbedProfile
+
         from acatome_extract.enrich import _get_embedder
 
         profile = EmbedProfile(

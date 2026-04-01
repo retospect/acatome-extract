@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from acatome_extract.bundle import read_bundle, write_bundle
 
 
@@ -28,7 +26,6 @@ class TestBundle:
         assert len(data["blocks"]) == 1
 
     def test_gzipped(self, tmp_path):
-        import gzip
 
         data = {"header": {"paper_id": "test"}, "blocks": [], "enrichment_meta": None}
         path = tmp_path / "test.acatome"

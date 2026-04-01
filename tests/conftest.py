@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import gzip
-import pytest
+import json
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture

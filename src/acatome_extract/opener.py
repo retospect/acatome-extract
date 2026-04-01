@@ -48,7 +48,9 @@ def open_pdf(pdf_path: Path, page: int | None = None) -> str:
     """
     if sys.platform != "darwin":
         subprocess.Popen(["xdg-open", str(pdf_path)])
-        return f"Opened {pdf_path.name}" + (f" (page {page} — manual navigation needed)" if page else "")
+        return f"Opened {pdf_path.name}" + (
+            f" (page {page} — manual navigation needed)" if page else ""
+        )
 
     # macOS: open in Preview
     subprocess.Popen(["open", "-a", "Preview", str(pdf_path)])

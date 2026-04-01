@@ -9,7 +9,6 @@ Steps 6–7 from spec:
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import unicodedata
@@ -74,7 +73,9 @@ def enrich(
     if summarize:
         title = data.get("header", {}).get("title", "")
         summary_key = f"llm:{summarizer}"
-        blocks = _summarize_blocks(blocks, summarizer, title=title, summary_key=summary_key)
+        blocks = _summarize_blocks(
+            blocks, summarizer, title=title, summary_key=summary_key
+        )
         paper_summary = _summarize_paper(blocks, summarizer, summary_key=summary_key)
         data["enrichment_meta"] = data.get("enrichment_meta") or {}
         data["enrichment_meta"]["summarizer"] = summarizer
@@ -84,6 +85,7 @@ def enrich(
         data["enrichment_meta"]["paper_summaries"] = paper_summaries
         # Backward compat: also write paper_summary as best pick
         from precis_summary import pick_best_summary
+
         data["enrichment_meta"]["paper_summary"] = pick_best_summary(paper_summaries)
         # Store prompt templates for provenance
         data["enrichment_meta"].setdefault("summary_prompts", {})[summary_key] = {
@@ -137,9 +139,7 @@ def _is_non_latin(title: str) -> bool:
     return ascii_letters / total_letters < 0.5
 
 
-def _translate_slug(
-    data: dict[str, Any], bundle_path: Path, summarizer: str
-) -> Path:
+def _translate_slug(data: dict[str, Any], bundle_path: Path, summarizer: str) -> Path:
     """If the title is non-Latin, ask the LLM for an English keyword and update the slug.
 
     Returns the (possibly renamed) bundle path.
@@ -155,12 +155,16 @@ def _translate_slug(
         return bundle_path
 
     try:
-        keyword = llm(
-            "Translate this paper title to English, then pick the single most "
-            "descriptive keyword (one lowercase word, no articles, no stopwords). "
-            "Reply with ONLY that one word, nothing else.\n\n"
-            f"Title: {title}"
-        ).strip().lower()
+        keyword = (
+            llm(
+                "Translate this paper title to English, then pick the single most "
+                "descriptive keyword (one lowercase word, no articles, no stopwords). "
+                "Reply with ONLY that one word, nothing else.\n\n"
+                f"Title: {title}"
+            )
+            .strip()
+            .lower()
+        )
         # Sanitize: keep only a-z
         keyword = re.sub(r"[^a-z]", "", keyword)
         if not keyword or len(keyword) < 2:
@@ -173,9 +177,7 @@ def _translate_slug(
     from acatome_extract.ids import make_slug
 
     old_slug = header.get("slug", "")
-    new_slug = make_slug(
-        header.get("authors", []), header.get("year"), keyword
-    )
+    new_slug = make_slug(header.get("authors", []), header.get("year"), keyword)
     if new_slug == old_slug:
         return bundle_path
 
@@ -195,7 +197,9 @@ def _translate_slug(
                 old_pdf.rename(new_pdf)
         return new_path
 
-    log.warning("  [slug] target %s already exists, keeping %s", new_path.name, bundle_path.name)
+    log.warning(
+        "  [slug] target %s already exists, keeping %s", new_path.name, bundle_path.name
+    )
     return bundle_path
 
 
@@ -235,7 +239,7 @@ def _summarize_blocks(
         # Build rolling context: document title + previous summary
         meta_lines = []
         if title:
-            meta_lines.append(f"Document: \"{title}\"")
+            meta_lines.append(f'Document: "{title}"')
         if prev_summary:
             meta_lines.append(f"Previous paragraph summary: {prev_summary}")
         meta = "\n".join(meta_lines) + "\n" if meta_lines else ""
@@ -270,20 +274,14 @@ def _summarize_paper(
         return ""
 
     key = summary_key or f"llm:{summarizer}"
-    summaries = [
-        b["summaries"][key]
-        for b in blocks
-        if b.get("summaries", {}).get(key)
-    ]
+    summaries = [b["summaries"][key] for b in blocks if b.get("summaries", {}).get(key)]
     if not summaries:
         return ""
 
     combined = "\n".join(f"- {s}" for s in summaries)
     log.info("  [summarize] paper summary from %d block summaries", len(summaries))
     try:
-        result = llm(
-            f"{_PAPER_PROMPT_TEMPLATE}\n\n{combined[:4000]}"
-        ).strip()
+        result = llm(f"{_PAPER_PROMPT_TEMPLATE}\n\n{combined[:4000]}").strip()
         log.info("  [summarize] paper summary done (%d chars)", len(result))
         return result
     except Exception as exc:
@@ -380,7 +378,7 @@ def _get_llm(summarizer: str):
 
     # Ollama models: use litellm's chat endpoint (ollama_chat/)
     if summarizer.startswith("ollama/"):
-        summarizer = "ollama_chat/" + summarizer[len("ollama/"):]
+        summarizer = "ollama_chat/" + summarizer[len("ollama/") :]
 
     # All other providers: use litellm
     _ensure_api_keys_in_env()
