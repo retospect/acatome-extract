@@ -131,7 +131,7 @@ def update_meta(
         try:
             data = read_bundle(b)
             header = data["header"]
-            bundle_path_str = str(b.resolve())
+            _bundle_path_str = str(b.resolve())
             # Re-lookup from bundle's stored PDF path or DOI
             new_header = lookup(doi=header.get("doi"), title=header.get("title"))
             # Merge — keep existing fields, update from new lookup
