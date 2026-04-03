@@ -129,7 +129,9 @@ class TestEnrichWithST:
 
         block = result["blocks"][0]
         assert "default" in block["embeddings"]
-        assert len(block["embeddings"]["default"]) == 384
+        from acatome_meta.config import load_config
+        expected_dim = load_config().extract.profiles["default"].dim
+        assert len(block["embeddings"]["default"]) == expected_dim
         assert all(isinstance(x, float) for x in block["embeddings"]["default"])
 
     def test_get_embedder_st(self):

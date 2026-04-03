@@ -19,6 +19,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from acatome_extract.chunker import DEFAULT_CHUNK_SIZE, split_text
 from acatome_extract.ids import make_node_id
 
 log = logging.getLogger(__name__)
@@ -254,34 +255,42 @@ def _marker_extract(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
         elif block_type == "skip":
             continue
 
-        if page_num not in block_counts:
-            block_counts[page_num] = 0
-        idx = block_counts[page_num]
-        block_counts[page_num] = idx + 1
+        # Chunk oversized text/list blocks (same splitter as fitz fallback)
+        if block_type in ("text", "list") and len(text) > DEFAULT_CHUNK_SIZE:
+            sub_texts = split_text(text)
+        else:
+            sub_texts = [text]
 
-        block: dict[str, Any] = {
-            "node_id": make_node_id(paper_id, page_num, idx),
-            "page": page_num,
-            "type": block_type,
-            "text": text,
-            "section_path": list(current_section),
-            "bbox": None,
-            "embeddings": {},
-            "summaries": {},
-        }
+        for sub_text in sub_texts:
+            if page_num not in block_counts:
+                block_counts[page_num] = 0
+            idx = block_counts[page_num]
+            block_counts[page_num] = idx + 1
 
-        # Attach images referenced in this chunk
-        img_refs = _IMAGE_RE.findall(chunk)
-        for _alt, ref in img_refs:
-            img_key = _find_image_key(ref, images)
-            if img_key:
-                b64, mime = _encode_pil_image(images[img_key])
-                block["image_base64"] = b64
-                block["image_mime"] = mime
-                block["type"] = "figure"
-                break
+            block: dict[str, Any] = {
+                "node_id": make_node_id(paper_id, page_num, idx),
+                "page": page_num,
+                "type": block_type,
+                "text": sub_text,
+                "section_path": list(current_section),
+                "bbox": None,
+                "embeddings": {},
+                "summaries": {},
+            }
 
-        blocks.append(block)
+            # Attach images referenced in this chunk (first sub-block only)
+            if sub_text is sub_texts[0]:
+                img_refs = _IMAGE_RE.findall(chunk)
+                for _alt, ref in img_refs:
+                    img_key = _find_image_key(ref, images)
+                    if img_key:
+                        b64, mime = _encode_pil_image(images[img_key])
+                        block["image_base64"] = b64
+                        block["image_mime"] = mime
+                        block["type"] = "figure"
+                        break
+
+            blocks.append(block)
 
     # Match figure captions
     blocks = _match_captions(blocks)

@@ -42,6 +42,9 @@ def make_slug(authors: list[dict], year: int | None, title: str) -> str:
     # First author surname
     if authors:
         name = authors[0].get("name", "")
+        # Handle multi-author strings packed into one field (e.g. "A; B; C")
+        if name and ";" in name:
+            name = name.split(";")[0].strip()
         surname = name.split(",")[0].strip().lower() if name else "anon"
     else:
         surname = "anon"
@@ -51,6 +54,8 @@ def make_slug(authors: list[dict], year: int | None, title: str) -> str:
     surname = re.sub(r"[^a-z]", "", surname)
     if not surname:
         surname = "anon"
+    # Cap surname length to prevent mega-slugs
+    surname = surname[:30]
 
     # Year
     yr = str(year) if year else "0000"

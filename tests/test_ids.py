@@ -80,6 +80,20 @@ class TestMakeSlug:
         b = make_slug([], 2023, "零间隙CO₂电解实验研究")
         assert a == b
 
+    def test_semicolon_separated_authors(self):
+        """Multi-author string packed into one name field with semicolons."""
+        authors = [{"name": "Daniel S. Levine; Nicholas Liesen; Lauren Chua"}]
+        slug = make_slug(authors, 2026, "Open Polymers Dataset")
+        assert slug == "danielslevine2026open"
+        assert len(slug) < 60
+
+    def test_surname_length_cap(self):
+        """Very long surname gets capped at 30 chars."""
+        authors = [{"name": "Superlongauthornamethatgoesforeverandever"}]
+        slug = make_slug(authors, 2024, "Test")
+        # surname portion should be capped
+        assert len(slug) < 50
+
 
 class TestMakeNodeId:
     def test_format(self):
