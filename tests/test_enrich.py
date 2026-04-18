@@ -137,13 +137,14 @@ class TestEmbedBlocks:
         result = _embed_blocks(blocks, embedder, "default")
         embedder.assert_not_called()
 
-    def test_embed_handles_error(self):
+    def test_embed_propagates_error(self):
+        """Embedder failures should propagate, not be silently swallowed."""
         blocks = [
             {"node_id": "a", "type": "text", "text": "Hello", "embeddings": {}},
         ]
         embedder = MagicMock(side_effect=RuntimeError("model unavailable"))
-        result = _embed_blocks(blocks, embedder, "default")
-        assert "default" not in result[0]["embeddings"]
+        with pytest.raises(RuntimeError, match="model unavailable"):
+            _embed_blocks(blocks, embedder, "default")
 
 
 class TestSummarizeBlocks:

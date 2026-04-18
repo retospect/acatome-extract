@@ -1,11 +1,15 @@
-"""Deterministic ID generation for papers and blocks."""
+"""Deterministic ID generation for papers and blocks.
+
+``make_slug`` is delegated to :func:`acatome_meta.literature.make_slug` — the
+canonical implementation shared across ``acatome-extract``, ``acatome-store``,
+and ``precis-mcp``. Re-exported here for backward compatibility.
+"""
 
 from __future__ import annotations
 
-import re
-import unicodedata
+from acatome_meta.literature import make_slug
 
-STOPWORDS = {"a", "an", "the", "new", "on", "of", "in", "for", "to", "and", "with"}
+__all__ = ["make_node_id", "make_paper_id", "make_slug"]
 
 
 def make_paper_id(
@@ -30,54 +34,6 @@ def make_paper_id(
     if pdf_hash:
         return f"sha256:{pdf_hash[:12]}"
     raise ValueError("At least one of doi, arxiv_id, or pdf_hash is required")
-
-
-def make_slug(authors: list[dict], year: int | None, title: str) -> str:
-    """Generate human-readable slug: {surname}{year}{keyword}.
-
-    Rules: ASCII-only, lowercase, skip stopwords, 'anon' if no author,
-    '0000' if no year.  Non-Latin titles (Chinese, Arabic, etc.) get a
-    short hash as keyword.
-    """
-    # First author surname
-    if authors:
-        name = authors[0].get("name", "")
-        # Handle multi-author strings packed into one field (e.g. "A; B; C")
-        if name and ";" in name:
-            name = name.split(";")[0].strip()
-        surname = name.split(",")[0].strip().lower() if name else "anon"
-    else:
-        surname = "anon"
-
-    # ASCII-only (transliterate accented → base letter)
-    surname = unicodedata.normalize("NFKD", surname).encode("ascii", "ignore").decode()
-    surname = re.sub(r"[^a-z]", "", surname)
-    if not surname:
-        surname = "anon"
-    # Cap surname length to prevent mega-slugs
-    surname = surname[:30]
-
-    # Year
-    yr = str(year) if year else "0000"
-
-    # First content word from title
-    # Transliterate first, then extract ASCII words
-    ascii_title = (
-        unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
-    )
-    words = re.findall(r"[a-z]+", ascii_title.lower())
-    keyword = next((w for w in words if w not in STOPWORDS), words[0] if words else "")
-
-    # Non-Latin titles may yield no ASCII words — use short hash
-    if not keyword:
-        if title.strip():
-            import hashlib
-
-            keyword = hashlib.sha256(title.encode()).hexdigest()[:6]
-        else:
-            keyword = "untitled"
-
-    return f"{surname}{yr}{keyword}"
 
 
 def make_node_id(paper_id: str, page: int, block_index: int) -> str:

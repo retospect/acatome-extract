@@ -17,10 +17,13 @@ from typing import Any
 
 log = logging.getLogger("acatome_extract.enrich")
 
-from acatome_extract.bundle import read_bundle, write_bundle
+from acatome_meta.literature import (
+    SKIP_EMBED_TYPES,
+    EmbedderUnavailableError,
+    build_embedder,
+)
 
-# Block types that skip embeddings
-_SKIP_EMBED_TYPES = {"section_header", "title", "author", "equation", "junk"}
+from acatome_extract.bundle import read_bundle, write_bundle
 
 _BLOCK_PROMPT_TEMPLATE = (
     "Terse telegram-style summary, one line. "
@@ -98,8 +101,15 @@ def enrich(
         profile_cfg = cfg.extract.profiles.get(profile_name)
         if not profile_cfg:
             continue
-        embedder = _get_embedder(profile_cfg)
-        if embedder is None:
+        try:
+            embedder = build_embedder(
+                profile_cfg.provider,
+                profile_cfg.model,
+                profile_cfg.dim,
+                profile_cfg.index_dim,
+            )
+        except EmbedderUnavailableError as exc:
+            log.warning("  [embed] profile %r skipped: %s", profile_name, exc)
             continue
         blocks = _embed_blocks(blocks, embedder, profile_name)
 
@@ -224,7 +234,7 @@ def _summarize_blocks(
     eligible = [
         i
         for i, b in enumerate(blocks)
-        if b.get("type") not in _SKIP_EMBED_TYPES
+        if b.get("type") not in SKIP_EMBED_TYPES
         and len(b.get("text", "").strip()) >= 50
     ]
     log.info("  [summarize] %d/%d blocks eligible", len(eligible), len(blocks))
@@ -299,7 +309,7 @@ def _embed_blocks(
     indices = []
 
     for i, block in enumerate(blocks):
-        if block.get("type") in _SKIP_EMBED_TYPES:
+        if block.get("type") in SKIP_EMBED_TYPES:
             continue
         text = block.get("text", "").strip()
         if not text:
@@ -310,10 +320,7 @@ def _embed_blocks(
     if not texts_to_embed:
         return blocks
 
-    try:
-        embeddings = embedder(texts_to_embed)
-    except Exception:
-        return blocks
+    embeddings = embedder(texts_to_embed)
 
     for idx, emb in zip(indices, embeddings):
         if "embeddings" not in blocks[idx]:
@@ -321,45 +328,6 @@ def _embed_blocks(
         blocks[idx]["embeddings"][profile_name] = emb
 
     return blocks
-
-
-def _get_embedder(profile):
-    """Get embedding function for a profile config."""
-    if profile.provider == "chroma":
-        try:
-            from chromadb.utils.embedding_functions import (
-                DefaultEmbeddingFunction,
-            )
-
-            ef = DefaultEmbeddingFunction()
-
-            def _chroma_embed(texts):
-                results = ef(texts)
-                # Convert numpy arrays to plain lists for JSON serialization
-                return [
-                    e.tolist() if hasattr(e, "tolist") else list(e) for e in results
-                ]
-
-            return _chroma_embed
-        except Exception:
-            return None
-
-    if profile.provider == "sentence-transformers":
-        try:
-            from sentence_transformers import SentenceTransformer
-
-            model = SentenceTransformer(profile.model)
-
-            def _embed(texts):
-                embs = model.encode(texts, normalize_embeddings=True)
-                dim = profile.index_dim or profile.dim
-                return [e[:dim].tolist() for e in embs]
-
-            return _embed
-        except Exception:
-            return None
-
-    return None
 
 
 def _get_llm(summarizer: str):

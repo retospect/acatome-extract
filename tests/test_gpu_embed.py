@@ -135,39 +135,31 @@ class TestEnrichWithST:
         assert len(block["embeddings"]["default"]) == expected_dim
         assert all(isinstance(x, float) for x in block["embeddings"]["default"])
 
-    def test_get_embedder_st(self):
-        """Verify _get_embedder returns a callable for sentence-transformers provider."""
-        from acatome_meta.config import EmbedProfile
+    def test_build_embedder_st(self):
+        """build_embedder returns a callable for sentence-transformers provider."""
+        from acatome_meta.literature import build_embedder
 
-        from acatome_extract.enrich import _get_embedder
-
-        profile = EmbedProfile(
+        embedder = build_embedder(
+            provider="sentence-transformers",
             model="all-MiniLM-L6-v2",
             dim=384,
-            provider="sentence-transformers",
         )
-        embedder = _get_embedder(profile)
-        assert embedder is not None
 
         result = embedder(["test sentence"])
         assert len(result) == 1
         assert len(result[0]) == 384
         assert all(isinstance(x, float) for x in result[0])
 
-    def test_get_embedder_st_with_truncation(self):
-        """Verify index_dim truncation works."""
-        from acatome_meta.config import EmbedProfile
+    def test_build_embedder_st_with_truncation(self):
+        """index_dim truncates the embedding vector."""
+        from acatome_meta.literature import build_embedder
 
-        from acatome_extract.enrich import _get_embedder
-
-        profile = EmbedProfile(
+        embedder = build_embedder(
+            provider="sentence-transformers",
             model="all-MiniLM-L6-v2",
             dim=384,
-            provider="sentence-transformers",
             index_dim=128,
         )
-        embedder = _get_embedder(profile)
-        assert embedder is not None
 
         result = embedder(["test sentence"])
         assert len(result) == 1
