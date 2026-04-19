@@ -397,11 +397,16 @@ def watch(
             _write_error(errors_dir, pdf, e)
             if not keep:
                 _move_to(pdf, errors_dir)
-            # Move orphan bundle out of papers/ on verification failure
+            # Move orphan bundle + PDF out of papers/ on verification failure
             bp = getattr(e, "bundle_path", None)
             if bp and isinstance(bp, Path) and bp.exists():
                 _move_to(bp, errors_dir)
                 log.info(f"  moved orphan bundle to errors/: {bp.name}")
+                # Also move the companion PDF that extract() copied
+                pdf_companion = bp.with_suffix(".pdf")
+                if pdf_companion.exists():
+                    _move_to(pdf_companion, errors_dir)
+                    log.info(f"  moved orphan PDF to errors/: {pdf_companion.name}")
 
     # --- Backfill (newest first) ---
     if backfill:

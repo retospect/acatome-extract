@@ -402,6 +402,129 @@ def note(
     typer.echo(f"📝 Note #{note_id} on {target_str} (by {origin})")
 
 
+@app.command()
+def repair(
+    path: Path = typer.Argument(..., help=".acatome bundle or directory containing anon files"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would change without writing"
+    ),
+    rename: bool = typer.Option(
+        True, "--rename/--no-rename", help="Rename files to corrected slug (default: yes)"
+    ),
+):
+    """Repair anon/untitled bundles by rescuing metadata from block text.
+
+    Scans for .acatome files whose slug starts with 'anon' or contains
+    'untitled', extracts title and authors from the text blocks, optionally
+    re-queries Semantic Scholar, and updates the header + renames the file.
+
+    Examples:
+      acatome-extract repair ./errors/ --dry-run
+      acatome-extract repair ./errors/anon2021untitled.acatome
+    """
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    from acatome_extract.bundle import read_bundle, update_bundle
+    from acatome_extract.ids import make_slug
+    from acatome_extract.pipeline import _rescue_metadata_from_blocks
+
+    if path.is_file():
+        bundles = [path]
+    else:
+        bundles = sorted(path.rglob("*.acatome"))
+
+    # Filter to anon/untitled bundles
+    targets = [
+        b for b in bundles
+        if "anon" in b.stem.lower() or "untitled" in b.stem.lower()
+    ]
+
+    if not targets:
+        typer.echo("No anon/untitled bundles found.")
+        raise typer.Exit(0)
+
+    typer.echo(f"Found {len(targets)} anon/untitled bundle(s)")
+    repaired = 0
+    failed = 0
+
+    for b in targets:
+        try:
+            data = read_bundle(b)
+            header = data.get("header", {})
+            old_slug = header.get("slug", b.stem)
+            blocks = data.get("blocks", [])
+
+            rescued = _rescue_metadata_from_blocks(blocks, header)
+            if not rescued or not rescued.get("title"):
+                typer.echo(f"  ✗ {b.name}: could not rescue metadata")
+                failed += 1
+                continue
+
+            # Merge rescued fields into header
+            for key, val in rescued.items():
+                if val:
+                    header[key] = val
+
+            new_slug = make_slug(
+                header.get("authors", []),
+                header.get("year"),
+                header.get("title", ""),
+            )
+            header["slug"] = new_slug
+            data["header"] = header
+
+            title_preview = (header.get("title") or "")[:60]
+            authors_preview = ""
+            if header.get("authors"):
+                authors_preview = header["authors"][0].get("name", "?")
+
+            if dry_run:
+                typer.echo(f"  → {old_slug} → {new_slug}")
+                typer.echo(f"    title: {title_preview}")
+                typer.echo(f"    author: {authors_preview}")
+                # Show companion files that would be renamed
+                for ext in (".pdf", ".error.txt"):
+                    companion = b.parent / f"{b.stem}{ext}"
+                    if companion.exists():
+                        typer.echo(f"    + {companion.name} → {new_slug}{ext}")
+            else:
+                update_bundle(data, b)
+                if rename and new_slug != old_slug:
+                    new_path = b.parent / f"{new_slug}.acatome"
+                    # Avoid clobbering existing files
+                    if new_path.exists() and new_path != b:
+                        typer.echo(f"  ⚠ {new_path.name} already exists, keeping {b.name}")
+                    else:
+                        b.rename(new_path)
+                        typer.echo(f"  ✓ {old_slug} → {new_slug}")
+                        typer.echo(f"    title: {title_preview}")
+                        typer.echo(f"    author: {authors_preview}")
+                        # Rename companion .pdf and .error.txt
+                        for ext in (".pdf", ".error.txt"):
+                            companion = b.parent / f"{b.stem}{ext}"
+                            if companion.exists():
+                                new_companion = b.parent / f"{new_slug}{ext}"
+                                if not new_companion.exists():
+                                    companion.rename(new_companion)
+                                    typer.echo(f"    + {companion.name} → {new_companion.name}")
+                else:
+                    typer.echo(f"  ✓ {b.name} (header updated)")
+
+            repaired += 1
+        except Exception as e:
+            typer.echo(f"  ✗ {b.name}: {e}", err=True)
+            failed += 1
+
+    prefix = "[dry-run] " if dry_run else ""
+    typer.echo(f"\n{prefix}{repaired} repaired, {failed} failed")
+
+
 def _has_llm_summaries(data: dict) -> bool:
     """Check if any block in the bundle already has an LLM summary."""
     for b in data.get("blocks", []):

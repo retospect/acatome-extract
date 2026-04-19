@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 import shutil
 import traceback
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +20,8 @@ from precis_summary import telegram_precis
 from acatome_extract.bundle import write_bundle
 from acatome_extract.ids import make_paper_id, make_slug
 from acatome_extract.marker import extract_blocks_marker
+
+log = logging.getLogger(__name__)
 
 # Block types that skip RAKE summarization (same as enrich skip list)
 _SKIP_SUMMARY_TYPES = {"section_header", "title", "author", "equation", "junk"}
@@ -111,6 +116,18 @@ def extract(
 
     # Step 2½: RAKE summaries (instant, no LLM)
     blocks = _rake_summarize_blocks(blocks)
+
+    # Step 6: Rescue metadata from blocks if lookup returned garbage
+    if not header.get("title") or not header.get("authors"):
+        rescued = _rescue_metadata_from_blocks(blocks, header)
+        if rescued:
+            header.update(rescued)
+            slug = make_slug(
+                header.get("authors", []),
+                header.get("year"),
+                header.get("title", ""),
+            )
+            log.info("rescued metadata from text: slug=%s title=%r", slug, header.get("title", "")[:60])
 
     # Build bundle
     bundle = _build_bundle(
@@ -227,6 +244,223 @@ def _local_header(
         "page_count": pdf_meta["page_count"],
         "first_pages_text": pdf_meta.get("first_pages_text", ""),
     }
+
+
+# Regex: line that looks like an author list (comma/and-separated names,
+# possibly with superscripts, affiliations stripped).
+_AUTHOR_LINE_RE = re.compile(
+    r"^[A-Z\u00C0-\u024F][\w\s.\-\u00C0-\u024F]+(?:,\s*[A-Z\u00C0-\u024F][\w\s.\-\u00C0-\u024F]+)*$"
+)
+
+
+def _rescue_metadata_from_blocks(
+    blocks: list[dict[str, Any]],
+    header: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Try to extract title and authors from the first few text blocks.
+
+    Called when the metadata lookup cascade failed to produce usable
+    metadata (no title or no authors).  Marker usually puts the title
+    as the first text block and the author list as the second.
+
+    Returns a dict of rescued fields to merge into *header*, or None.
+    """
+    # Collect first few substantial text blocks (skip junk, headers, tiny)
+    candidates: list[str] = []
+    for block in blocks[:15]:
+        btype = block.get("type", "")
+        if btype in ("junk", "equation", "figure", "table"):
+            continue
+        text = block.get("text", "").strip()
+        if not text or len(text) < 5:
+            continue
+        candidates.append(text)
+        if len(candidates) >= 5:
+            break
+
+    if not candidates:
+        return None
+
+    rescued: dict[str, Any] = {}
+
+    # Title: first candidate that's short enough to be a title (< 300 chars)
+    # and doesn't look like a section header number
+    if not header.get("title"):
+        for cand in candidates:
+            # Skip section headers like "1. Introduction"
+            if re.match(r"^\d+[\.\s]", cand):
+                continue
+            # Skip "Abstract" headers
+            if cand.lower().strip() in ("abstract", "contents", "references"):
+                continue
+
+            if len(cand) <= 300:
+                rescued["title"] = cand
+                break
+
+            # For long blocks: title+author often merged by Marker.
+            # Split on newlines and extract the title from the first lines.
+            title, remaining_authors = _split_title_from_block(cand)
+            if title:
+                rescued["title"] = title
+                if remaining_authors and not header.get("authors"):
+                    rescued["authors"] = remaining_authors
+                break
+
+    # Authors: look for a block after the title that contains names
+    # (skip if already rescued from a merged block above)
+    if not header.get("authors") and not rescued.get("authors"):
+        title_text = rescued.get("title") or header.get("title", "")
+        for cand in candidates:
+            if cand == title_text:
+                continue
+            # Skip if it's clearly abstract/body text (has sentences)
+            if len(cand) > 500 or cand.count(". ") > 3:
+                continue
+            # Skip known non-author patterns
+            low = cand.lower()
+            if low.startswith("abstract") or low.startswith("keyword"):
+                continue
+            authors = _parse_author_block(cand)
+            if authors:
+                rescued["authors"] = authors
+                break
+
+    # Try S2 title lookup with rescued title
+    if rescued.get("title") and not header.get("doi"):
+        try:
+            from acatome_meta.semantic_scholar import lookup_s2
+            import os
+
+            s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
+            s2_result = lookup_s2(rescued["title"], api_key=s2_key)
+            if s2_result and s2_result.get("title"):
+                log.info("S2 rescue hit: %s", s2_result.get("title", "")[:60])
+                # Merge S2 result (higher quality) into rescued
+                for key in ("title", "authors", "year", "doi", "arxiv_id",
+                            "journal", "abstract", "s2_id"):
+                    if s2_result.get(key):
+                        rescued[key] = s2_result[key]
+                rescued["source"] = "s2_rescue"
+        except Exception as exc:
+            log.debug("S2 rescue lookup failed: %s", exc)
+
+    if not rescued:
+        return None
+
+    rescued.setdefault("source", "text_rescue")
+    log.info("rescued %d field(s) from block text", len(rescued) - 1)
+    return rescued
+
+
+def _split_title_from_block(text: str) -> tuple[str | None, list[dict[str, str]] | None]:
+    """Split a merged title+author block into (title, authors).
+
+    Marker sometimes puts title, author names, and abstract into one block.
+    Strategy: split on newlines, collect title lines (short, no commas/numbers
+    suggesting author affiliations), stop when we hit an author-like line.
+    """
+    lines = text.split("\n")
+
+    # Strip leading arXiv header lines (e.g. "arXiv:2301.12345v3  [cs.LG]  29 Jan 2023")
+    while lines and re.match(r"^arXiv:\d", lines[0].strip()):
+        lines = lines[1:]
+
+    if not lines:
+        return None, None
+
+    title_lines: list[str] = []
+    author_start = None
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            if title_lines:
+                author_start = i + 1
+                break
+            continue
+
+        # Stop at Abstract/Contents/date lines
+        low = stripped.lower()
+        if low.startswith("abstract") or low.startswith("contents"):
+            author_start = i
+            break
+
+        # Stop at date-like lines (e.g. "30th October 2018")
+        if re.match(r"^\d{1,2}(?:st|nd|rd|th)?\s+\w+\s+\d{4}", stripped):
+            author_start = i
+            break
+
+        # Author-like line: contains superscript markers, multiple commas + capitalized names
+        has_affiliation_markers = bool(re.search(r"[†‡§¶∗⊥#]|\d+[,∗]", stripped))
+        has_multi_names = stripped.count(",") >= 2 and re.search(r"[A-Z]\.\s", stripped)
+        if has_affiliation_markers or has_multi_names:
+            if title_lines:
+                author_start = i
+                break
+
+        # If it looks like continuation of a title (no period at end, reasonable length)
+        if len(stripped) < 200 and not stripped.endswith("."):
+            title_lines.append(stripped)
+        else:
+            if title_lines:
+                author_start = i
+                break
+            title_lines.append(stripped)
+
+        # Cap title at 3 lines
+        if len(title_lines) >= 3:
+            author_start = i + 1
+            break
+
+    if not title_lines:
+        return None, None
+
+    title = " ".join(title_lines)
+    if len(title) > 300:
+        title = title[:300]
+
+    # Try to parse authors from remaining lines
+    authors = None
+    if author_start is not None and author_start < len(lines):
+        author_text = "\n".join(lines[author_start:author_start + 3])
+        authors = _parse_author_block(author_text)
+
+    return title, authors
+
+
+def _parse_author_block(text: str) -> list[dict[str, str]] | None:
+    """Parse an author block into a list of {name: ...} dicts.
+
+    Strips superscript markers, affiliation numbers, and common symbols.
+    Returns None if no plausible author names found.
+    """
+    # Strip superscript markers and affiliations
+    clean = re.sub(r"<sup>[^<]*</sup>", "", text)
+    clean = re.sub(r"\*+", "", clean)
+    clean = re.sub(r"[†‡§¶∗⊥#]", "", clean)
+    # Strip affiliation numbers attached to names (e.g. "Author1,2")
+    clean = re.sub(r"(\w)\d+(?:,\d+)*", r"\1", clean)
+    # Strip standalone numbers
+    clean = re.sub(r"\b\d+\b", "", clean)
+    # Strip email-like patterns
+    clean = re.sub(r"\S+@\S+", "", clean)
+    # Strip leading "and"
+    clean = re.sub(r"^\s*and\s+", "", clean, flags=re.IGNORECASE)
+
+    # First line only (remaining lines are usually affiliations)
+    first_line = clean.split("\n")[0].strip()
+    if not first_line:
+        return None
+
+    # Split on comma, semicolon, " and "
+    parts = re.split(r"[;,]|\band\b", first_line)
+    names = [p.strip() for p in parts if p.strip() and len(p.strip()) > 2]
+    # Must have at least one name-like token (capitalized word)
+    name_like = [n for n in names if re.match(r"[A-Z\u00C0-\u024F]", n)]
+    if name_like:
+        return [{"name": n} for n in name_like[:10]]
+    return None
 
 
 def _build_bundle(
