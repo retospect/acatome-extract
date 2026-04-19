@@ -7,7 +7,6 @@ import logging
 import re
 import shutil
 import traceback
-import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -329,8 +328,9 @@ def _rescue_metadata_from_blocks(
     # Try S2 title lookup with rescued title
     if rescued.get("title") and not header.get("doi"):
         try:
-            from acatome_meta.semantic_scholar import lookup_s2
             import os
+
+            from acatome_meta.semantic_scholar import lookup_s2
 
             s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
             s2_result = lookup_s2(rescued["title"], api_key=s2_key)
