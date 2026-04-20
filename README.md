@@ -88,7 +88,19 @@ Place a `<stem>.meta.json` alongside any PDF to override metadata:
 {"type": "datasheet", "title": "LM317 Regulator", "author": "Texas Instruments", "year": 2022}
 ```
 
-Supported fields: `type`, `title`, `author` (string or list), `year`, `doi`, `abstract`, `journal`.
+Supported fields: `type`, `title`, `author` (string or list), `year`, `doi`,
+`abstract`, `journal`, `s2_id`, `arxiv_id`, `verified`.
+
+Use **explicit `null`** to clear a field that the upstream Crossref/S2 lookup
+got wrong — empty strings are ignored for backward compatibility:
+
+```json
+{"doi": "10.1002/9781118519301.ch5", "s2_id": null, "verified": true}
+```
+
+When `"verified": true` is set, the fuzzy-title verification gate is
+bypassed — useful for PDFs where the real title doesn't appear on page 1
+(Elsevier header strips, ACS internal production PDFs, abstract collections).
 
 ## Dependencies
 

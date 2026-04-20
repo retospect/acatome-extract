@@ -316,6 +316,108 @@ class TestReadSidecar:
         assert _read_sidecar(pdf) == {}
 
 
+class TestSidecarOverrideKeys:
+    """The sidecar should be able to clear stale s2_id / arxiv_id values
+    from the pre-sidecar Crossref/S2 lookup, and should let the user bypass
+    the fuzzy-title verification gate when they have manually verified the
+    metadata matches the PDF content."""
+
+    def test_override_keys_include_s2_and_arxiv(self):
+        from acatome_extract.pipeline import _SIDECAR_OVERRIDE_KEYS
+
+        # Regression: without these keys, the sidecar couldn't clear a stale
+        # s2_id, so Store._find_ref kept matching bundles into a wrong ref.
+        assert "s2_id" in _SIDECAR_OVERRIDE_KEYS
+        assert "arxiv_id" in _SIDECAR_OVERRIDE_KEYS
+
+    def test_explicit_null_clears_field(self):
+        """When the sidecar sets a key to ``None`` (JSON null), the field
+        is cleared on the header. Empty strings continue to be ignored for
+        backward compatibility with older sidecars."""
+        from acatome_extract.pipeline import _SIDECAR_OVERRIDE_KEYS
+
+        header = {
+            "title": "Original",
+            "s2_id": "bogus_id_from_crossref",
+            "doi": "10.1/good",
+        }
+        sidecar = {"s2_id": None, "doi": "10.1/override", "title": ""}
+
+        # Simulate the override loop from extract()
+        for key in _SIDECAR_OVERRIDE_KEYS:
+            if key not in sidecar:
+                continue
+            val = sidecar[key]
+            if val == "":
+                continue
+            header[key] = val
+
+        assert header["s2_id"] is None  # explicit null cleared it
+        assert header["doi"] == "10.1/override"  # non-empty overrode
+        assert header["title"] == "Original"  # empty string ignored
+
+
+class TestSidecarVerifiedOptIn:
+    """``"verified": true`` in the sidecar bypasses the fuzzy-title gate."""
+
+    def test_verified_true_bypasses_verify(self, tmp_path, monkeypatch):
+        """Integration-ish test: a sidecar with ``verified: true`` causes the
+        pipeline to skip ``verify_metadata`` entirely and mark the bundle
+        verified."""
+        from acatome_extract import pipeline
+
+        calls = {"verify": 0}
+
+        def fake_verify(header, text):
+            calls["verify"] += 1
+            return False, ["would have failed"]
+
+        def fake_lookup(path):
+            return {
+                "title": "Real Title That Doesn't Appear On Page 1",
+                "authors": [{"name": "Author"}],
+                "doi": "10.1/real",
+                "first_pages_text": "unrelated extracted text",
+            }
+
+        def fake_pdf_meta(path):
+            return {
+                "pdf_hash": "abc",
+                "page_count": 1,
+                "doi": None,
+                "first_pages_text": "unrelated",
+                "info": {},
+            }
+
+        # We only need to check the verify branch, so stub out the expensive
+        # parts that follow.
+        def fake_blocks(path, paper_id):
+            return []
+
+        def fake_write_bundle(bundle, path):
+            path.write_bytes(b"stub")
+            return path
+
+        monkeypatch.setattr(pipeline, "verify_metadata", fake_verify)
+        monkeypatch.setattr(pipeline, "lookup", fake_lookup)
+        monkeypatch.setattr(pipeline, "extract_pdf_meta", fake_pdf_meta)
+        monkeypatch.setattr(pipeline, "extract_blocks_marker", fake_blocks)
+        monkeypatch.setattr(pipeline, "write_bundle", fake_write_bundle)
+
+        pdf = tmp_path / "p.pdf"
+        pdf.write_bytes(b"stub")
+        (tmp_path / "p.meta.json").write_text(
+            '{"title": "Real Title That Doesn\'t Appear On Page 1",'
+            ' "verified": true}'
+        )
+
+        pipeline.extract(pdf, output_dir=tmp_path)
+
+        assert calls["verify"] == 0, (
+            "verify_metadata must not be called when sidecar sets verified=true"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Prompt provenance constants
 # ---------------------------------------------------------------------------

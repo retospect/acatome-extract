@@ -31,6 +31,18 @@ ACATOME_HOME = Path.home() / ".acatome"
 # Document types that skip metadata lookup (no CrossRef/S2).
 _LOCAL_DOC_TYPES = {"datasheet", "manual", "techreport", "notes", "other"}
 
+# Keys a sidecar .meta.json can override on the looked-up header.
+# Explicit None clears the field (backward-compat: empty string is ignored).
+_SIDECAR_OVERRIDE_KEYS = (
+    "title",
+    "year",
+    "doi",
+    "abstract",
+    "journal",
+    "s2_id",
+    "arxiv_id",
+)
+
 
 def extract(
     pdf_path: str | Path,
@@ -72,17 +84,25 @@ def extract(
     else:
         header = lookup(str(pdf_path))
 
-    # Apply sidecar overrides (explicit user metadata wins)
-    for key in ("title", "year", "doi", "abstract", "journal"):
-        if sidecar.get(key):
-            header[key] = sidecar[key]
-    if sidecar.get("author"):
-        # Sidecar author can be string or list of strings
+    # Apply sidecar overrides (explicit user metadata wins).
+    # Explicit None clears a field — useful when the initial Crossref/S2
+    # lookup returned a wrong s2_id/arxiv_id that would otherwise contaminate
+    # downstream dedup. Empty strings are ignored (treated as "not set").
+    for key in _SIDECAR_OVERRIDE_KEYS:
+        if key not in sidecar:
+            continue
+        val = sidecar[key]
+        if val == "":
+            continue
+        header[key] = val  # None clears, non-empty overrides
+    if "author" in sidecar:
         raw = sidecar["author"]
-        if isinstance(raw, str):
+        if isinstance(raw, str) and raw:
             header["authors"] = [{"name": raw}]
         elif isinstance(raw, list):
-            header["authors"] = [{"name": a} for a in raw]
+            header["authors"] = [{"name": a} for a in raw if a]
+        elif raw is None:
+            header["authors"] = []
 
     # Override entry_type with the requested doc_type
     header["entry_type"] = doc_type
@@ -91,6 +111,12 @@ def extract(
     verify_warnings: list[str] = []
     if not verify or doc_type in _LOCAL_DOC_TYPES:
         verified = True
+    elif "verified" in sidecar:
+        # Sidecar explicitly attests to metadata correctness — trust the user
+        # (they edited this file by hand after reviewing the PDF).
+        verified = bool(sidecar["verified"])
+        if not verified:
+            verify_warnings = ["sidecar marked unverified"]
     elif header.get("first_pages_text"):
         verified, verify_warnings = verify_metadata(header, header["first_pages_text"])
     else:
