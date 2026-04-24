@@ -391,13 +391,36 @@ def _rescue_metadata_from_blocks(
             s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
             s2_result = lookup_s2(rescued["title"], api_key=s2_key)
             if s2_result and s2_result.get("title"):
-                log.info("S2 rescue hit: %s", s2_result.get("title", "")[:60])
-                # Merge S2 result (higher quality) into rescued
-                for key in ("title", "authors", "year", "doi", "arxiv_id",
-                            "journal", "abstract", "s2_id"):
-                    if s2_result.get(key):
-                        rescued[key] = s2_result[key]
-                rescued["source"] = "s2_rescue"
+                # Year-sanity check. S2's fuzzy title search can return a
+                # plausible-but-wrong paper when the rescued title is a
+                # generic phrase ("The rise of graphene" matches a 2024
+                # review whose subtitle contains it). If S2's year differs
+                # from the PDF year by more than 2, reject the hit — the
+                # correct outcome is to leave rescued as text-only so the
+                # verify gate later rejects it instead of us accepting bad
+                # metadata. 2-year tolerance covers preprint→journal lag.
+                pdf_year = header.get("year")
+                s2_year = s2_result.get("year")
+                if (
+                    pdf_year
+                    and s2_year
+                    and abs(int(s2_year) - int(pdf_year)) > 2
+                ):
+                    log.warning(
+                        "rejecting S2 rescue hit %r: year mismatch "
+                        "(pdf=%s vs s2=%s)",
+                        s2_result.get("title", "")[:60],
+                        pdf_year,
+                        s2_year,
+                    )
+                else:
+                    log.info("S2 rescue hit: %s", s2_result.get("title", "")[:60])
+                    # Merge S2 result (higher quality) into rescued
+                    for key in ("title", "authors", "year", "doi", "arxiv_id",
+                                "journal", "abstract", "s2_id"):
+                        if s2_result.get(key):
+                            rescued[key] = s2_result[key]
+                    rescued["source"] = "s2_rescue"
         except Exception as exc:
             log.debug("S2 rescue lookup failed: %s", exc)
 
