@@ -404,12 +404,16 @@ def note(
 
 @app.command()
 def repair(
-    path: Path = typer.Argument(..., help=".acatome bundle or directory containing anon files"),
+    path: Path = typer.Argument(
+        ..., help=".acatome bundle or directory containing anon files"
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Show what would change without writing"
     ),
     rename: bool = typer.Option(
-        True, "--rename/--no-rename", help="Rename files to corrected slug (default: yes)"
+        True,
+        "--rename/--no-rename",
+        help="Rename files to corrected slug (default: yes)",
     ),
 ):
     """Repair anon/untitled bundles by rescuing metadata from block text.
@@ -441,8 +445,7 @@ def repair(
 
     # Filter to anon/untitled bundles
     targets = [
-        b for b in bundles
-        if "anon" in b.stem.lower() or "untitled" in b.stem.lower()
+        b for b in bundles if "anon" in b.stem.lower() or "untitled" in b.stem.lower()
     ]
 
     if not targets:
@@ -499,7 +502,9 @@ def repair(
                     new_path = b.parent / f"{new_slug}.acatome"
                     # Avoid clobbering existing files
                     if new_path.exists() and new_path != b:
-                        typer.echo(f"  ⚠ {new_path.name} already exists, keeping {b.name}")
+                        typer.echo(
+                            f"  ⚠ {new_path.name} already exists, keeping {b.name}"
+                        )
                     else:
                         b.rename(new_path)
                         typer.echo(f"  ✓ {old_slug} → {new_slug}")
@@ -512,7 +517,9 @@ def repair(
                                 new_companion = b.parent / f"{new_slug}{ext}"
                                 if not new_companion.exists():
                                     companion.rename(new_companion)
-                                    typer.echo(f"    + {companion.name} → {new_companion.name}")
+                                    typer.echo(
+                                        f"    + {companion.name} → {new_companion.name}"
+                                    )
                 else:
                     typer.echo(f"  ✓ {b.name} (header updated)")
 

@@ -77,9 +77,8 @@ def _wrap_untrusted(text: str) -> str:
     the source so an attacker cannot close the tag early and inject
     instructions outside it.
     """
-    safe = (
-        text.replace("<document>", "<document_lit>")
-        .replace("</document>", "</document_lit>")
+    safe = text.replace("<document>", "<document_lit>").replace(
+        "</document>", "</document_lit>"
     )
     return f"<document>\n{safe}\n</document>"
 
@@ -344,8 +343,7 @@ def _summarize_blocks(
                 f"{_BLOCK_PROMPT_TEMPLATE}\n"
                 "Example: 'LOV2 Jα unfolds under blue light; "
                 "exposes caging interface for peptide sequences'"
-                f"{canary_instr}\n\n"
-                + _wrap_untrusted(text[:2000])
+                f"{canary_instr}\n\n" + _wrap_untrusted(text[:2000])
             )
             summary = summary.strip()
             if canary and _check_canary_leak(
@@ -383,16 +381,13 @@ def _summarize_paper(
     log.info("  [summarize] paper summary from %d block summaries", len(summaries))
     canary = _make_canary() if _canary_enabled() else ""
     canary_instr = (
-        f"\n(Internal token: {canary} — do NOT include in output.)\n"
-        if canary
-        else ""
+        f"\n(Internal token: {canary} — do NOT include in output.)\n" if canary else ""
     )
     try:
         result = llm(
             _UNTRUSTED_PRELUDE + "\n\n"
             f"{_PAPER_PROMPT_TEMPLATE}"
-            f"{canary_instr}\n\n"
-            + _wrap_untrusted(combined[:4000])
+            f"{canary_instr}\n\n" + _wrap_untrusted(combined[:4000])
         ).strip()
         if canary and _check_canary_leak(canary, result, context="paper summary"):
             result = result.replace(canary, "").strip()

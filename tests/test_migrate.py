@@ -407,8 +407,7 @@ class TestSidecarVerifiedOptIn:
         pdf = tmp_path / "p.pdf"
         pdf.write_bytes(b"stub")
         (tmp_path / "p.meta.json").write_text(
-            '{"title": "Real Title That Doesn\'t Appear On Page 1",'
-            ' "verified": true}'
+            '{"title": "Real Title That Doesn\'t Appear On Page 1", "verified": true}'
         )
 
         pipeline.extract(pdf, output_dir=tmp_path)

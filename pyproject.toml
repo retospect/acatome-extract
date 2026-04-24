@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "acatome-extract"
-version = "0.6.0"
+version = "0.6.1"
 description = "PDF extraction pipeline for scientific papers"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "acatome-meta>=0.1.0",
+    "acatome-meta>=0.3.6",
     "marker-pdf>=1.0; sys_platform != 'win32'",
     "pymupdf>=1.24",
     "precis-summary>=0.1.0",

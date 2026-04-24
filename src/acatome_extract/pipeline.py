@@ -169,7 +169,11 @@ def extract(
                 header.get("year"),
                 header.get("title", ""),
             )
-            log.info("rescued metadata from text: slug=%s title=%r", slug, header.get("title", "")[:60])
+            log.info(
+                "rescued metadata from text: slug=%s title=%r",
+                slug,
+                header.get("title", "")[:60],
+            )
             # Re-verify: the title/authors we now have came from block text,
             # so they should fuzz-match the first-pages text by construction.
             # Without this, ``verified`` stays False (computed from the pre-
@@ -401,14 +405,9 @@ def _rescue_metadata_from_blocks(
                 # metadata. 2-year tolerance covers preprint→journal lag.
                 pdf_year = header.get("year")
                 s2_year = s2_result.get("year")
-                if (
-                    pdf_year
-                    and s2_year
-                    and abs(int(s2_year) - int(pdf_year)) > 2
-                ):
+                if pdf_year and s2_year and abs(int(s2_year) - int(pdf_year)) > 2:
                     log.warning(
-                        "rejecting S2 rescue hit %r: year mismatch "
-                        "(pdf=%s vs s2=%s)",
+                        "rejecting S2 rescue hit %r: year mismatch (pdf=%s vs s2=%s)",
                         s2_result.get("title", "")[:60],
                         pdf_year,
                         s2_year,
@@ -416,8 +415,16 @@ def _rescue_metadata_from_blocks(
                 else:
                     log.info("S2 rescue hit: %s", s2_result.get("title", "")[:60])
                     # Merge S2 result (higher quality) into rescued
-                    for key in ("title", "authors", "year", "doi", "arxiv_id",
-                                "journal", "abstract", "s2_id"):
+                    for key in (
+                        "title",
+                        "authors",
+                        "year",
+                        "doi",
+                        "arxiv_id",
+                        "journal",
+                        "abstract",
+                        "s2_id",
+                    ):
                         if s2_result.get(key):
                             rescued[key] = s2_result[key]
                     rescued["source"] = "s2_rescue"
@@ -432,7 +439,9 @@ def _rescue_metadata_from_blocks(
     return rescued
 
 
-def _split_title_from_block(text: str) -> tuple[str | None, list[dict[str, str]] | None]:
+def _split_title_from_block(
+    text: str,
+) -> tuple[str | None, list[dict[str, str]] | None]:
     """Split a merged title+author block into (title, authors).
 
     Marker sometimes puts title, author names, and abstract into one block.
@@ -502,7 +511,7 @@ def _split_title_from_block(text: str) -> tuple[str | None, list[dict[str, str]]
     # Try to parse authors from remaining lines
     authors = None
     if author_start is not None and author_start < len(lines):
-        author_text = "\n".join(lines[author_start:author_start + 3])
+        author_text = "\n".join(lines[author_start : author_start + 3])
         authors = _parse_author_block(author_text)
 
     return title, authors
