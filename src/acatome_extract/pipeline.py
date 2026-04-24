@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from acatome_meta.lookup import lookup
-from acatome_meta.pdf import extract_pdf_meta
+from acatome_meta.pdf import extract_pdf_meta, is_garbage_title
 from acatome_meta.verify import verify_metadata
 from precis_summary import telegram_precis
 
@@ -142,8 +142,25 @@ def extract(
     # Step 2½: RAKE summaries (instant, no LLM)
     blocks = _rake_summarize_blocks(blocks)
 
-    # Step 6: Rescue metadata from blocks if lookup returned garbage
-    if not header.get("title") or not header.get("authors"):
+    # Step 6: Rescue metadata from blocks if lookup returned garbage.
+    #
+    # Triggers when:
+    #   - title missing entirely, OR
+    #   - title matches a known-bad embedded-metadata pattern (InDesign
+    #     filenames, manuscript tracking IDs, LaTeX template boilerplate —
+    #     see :func:`is_garbage_title`). This catches cases where CrossRef
+    #     itself returned garbage for a valid DOI (e.g. APS's revtex
+    #     boilerplate leaking as the title), OR
+    #   - authors list is empty.
+    #
+    # The rescue function gates on ``header.get("title")`` being empty,
+    # so we clear a garbage title here before calling it.
+    title = header.get("title", "") or ""
+    if is_garbage_title(title):
+        log.info("clearing garbage title from lookup: %r", title[:60])
+        header["title"] = ""
+        title = ""
+    if not title or not header.get("authors"):
         rescued = _rescue_metadata_from_blocks(blocks, header)
         if rescued:
             header.update(rescued)
@@ -153,6 +170,19 @@ def extract(
                 header.get("title", ""),
             )
             log.info("rescued metadata from text: slug=%s title=%r", slug, header.get("title", "")[:60])
+            # Re-verify: the title/authors we now have came from block text,
+            # so they should fuzz-match the first-pages text by construction.
+            # Without this, ``verified`` stays False (computed from the pre-
+            # rescue garbage title) and the paper would be rejected later.
+            if (
+                verify
+                and doc_type not in _LOCAL_DOC_TYPES
+                and "verified" not in sidecar
+                and header.get("first_pages_text")
+            ):
+                verified, verify_warnings = verify_metadata(
+                    header, header["first_pages_text"]
+                )
 
     # Build bundle
     bundle = _build_bundle(
