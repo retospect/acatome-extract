@@ -19,7 +19,15 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from acatome_extract.chunker import DEFAULT_CHUNK_SIZE, split_text
+import ftfy
+
+from acatome_extract.chunker import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_CHUNK_SIZE,
+    enforce_hard_max,
+    split_table,
+    split_text,
+)
 from acatome_extract.ids import make_node_id
 
 log = logging.getLogger(__name__)
@@ -39,6 +47,51 @@ _LIGATURES = {
 _SPACED_OUT_RE = re.compile(r"(?<![A-Za-z])([A-Za-z](?:\s[A-Za-z]){3,})(?![A-Za-z])")
 
 
+# ftfy config tuned for **chemistry / scientific** corpora. The default
+# ftfy preset is aggressive: it would fold ′ (PRIME, U+2032) into a
+# straight apostrophe, normalize ₂ (SUBSCRIPT TWO) into 2 under NFKC, and
+# unescape HTML entities that scientific papers sometimes contain
+# legitimately ("&lt;1 nm"). All of those are silent corruption hazards
+# in this domain.
+#
+# Chemistry-safe rule of thumb: only repair things that are unambiguously
+# *broken* (mis-decoded byte sequences, lossy U+FFFD, surrogate pairs,
+# C1-control bytes from cp1252). Leave everything that's intentionally
+# typed alone — Greek letters (α β γ Δ Σ μ Ω), arrows (→ ↔ ⇌), sub/super
+# scripts (₂ ³⁺), units (°C Å μ ±), math operators (≤ ≥ ≠ ≈ ∫ ∑), and
+# primes (′ ″). NFC composition is OK and matches our existing post-
+# processing in :func:`_clean_text`; NFKC would corrupt sub/superscripts
+# and is explicitly off.
+_FTFY_CONFIG = ftfy.TextFixerConfig(
+    # Core encoding repairs — what we actually need.
+    fix_encoding=True,  # "Ã©" → "é", "â‚‚" → "₂"
+    fix_c1_controls=True,  # cp1252-mojibake repair
+    fix_surrogates=True,  # UTF-16 surrogate pairs
+    decode_inconsistent_utf8=True,
+    replace_lossy_sequences=True,  # "?" → original where guessable
+    restore_byte_a0=True,
+    # Whitespace / line-break hygiene — safe.
+    fix_line_breaks=True,
+    remove_terminal_escapes=True,
+    # NB: ftfy 6.x no longer exposes a ``remove_bom`` switch; BOMs are
+    # handled by the encoding-fix pass and (defensively) by our explicit
+    # \ufeff strip in :func:`_clean_text` below.
+    # Things that would corrupt scientific text — explicitly off.
+    fix_latin_ligatures=False,  # we handle ﬁ→fi via _LIGATURES below
+    fix_character_width=False,  # don't fold fullwidth/halfwidth
+    uncurl_quotes=False,  # ′ ″ have semantic value (primes / minutes)
+    unescape_html=False,  # "&lt;1 nm" is legitimate scientific text
+    # Use NFC (composes á from a + ́); never NFKC (folds ₂ → 2).
+    normalization="NFC",
+    # We do our own control-char strip in _clean_text; ftfy's pass would
+    # be redundant work.
+    remove_control_chars=False,
+    # Don't compute per-fix explanations — we apply this thousands of
+    # times per paper and the explanation list eats ~1ms each.
+    explain=False,
+)
+
+
 def _fix_spaced_out(match: re.Match) -> str:
     """Collapse 'M E T H O D S' → 'METHODS'."""
     return match.group(1).replace(" ", "")
@@ -47,7 +100,13 @@ def _fix_spaced_out(match: re.Match) -> str:
 def _clean_text(text: str) -> str:
     """Normalize PDF-extracted text.
 
-    - NFC Unicode normalization
+    - **ftfy mojibake repair** with a chemistry-safe config (see
+      :data:`_FTFY_CONFIG` for the rationale on each switch). Repairs
+      ``"Ã©" → "é"``, ``"â‚‚" → "₂"``, etc. without touching intentional
+      Unicode (Greek, arrows, sub/superscripts, primes, units).
+    - NFC Unicode normalization (also performed by ftfy under our
+      config; explicit pass kept here for defense in depth in case
+      future ftfy upgrades flip the default).
     - Replace ligatures (\\ufb01 fi, \\ufb02 fl, etc.)
     - Fix spaced-out kerning artifacts ('M E T H O D S' → 'METHODS')
     - Strip control chars < 0x20 except \\n and \\t
@@ -55,7 +114,14 @@ def _clean_text(text: str) -> str:
     - Collapse multiple blank lines into one
     - Strip trailing whitespace per line
     """
-    # NFC normalization
+    # ftfy first: it can introduce sequences (e.g. composing combining
+    # marks) that subsequent ligature / control-char passes need to see
+    # in their normalized form. Doing it first also means our cleanup
+    # never has to reason about cp1252-mojibake — by the time we hit
+    # the ligature map every character is in its true Unicode home.
+    text = ftfy.fix_text(text, config=_FTFY_CONFIG)
+
+    # NFC normalization — defensive duplicate of ftfy's NFC pass.
     text = unicodedata.normalize("NFC", text)
 
     # Ligatures
@@ -220,7 +286,17 @@ def _marker_extract(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
     converter = PdfConverter(artifact_dict=create_model_dict())
     rendered = converter(str(pdf_path))
 
-    md = rendered.markdown
+    # Marker's per-PDF output sometimes contains mojibake even after
+    # marker's own internal ``ftfy`` passes (e.g. on PDFs whose
+    # cmap claims one encoding while the embedded ToUnicode map
+    # disagrees). Run our chemistry-safe cleanup over the entire
+    # markdown blob *before* chunking so every downstream block,
+    # caption, and section_path inherits the repaired text.
+    # Previously this path skipped the cleanup that the fitz-fallback
+    # path performed on every page; the asymmetry meant Marker-extracted
+    # papers showed up in search with garbled δ-bonds while fitz-extracted
+    # ones were clean. (See test_clean_text_chemistry_corpus.)
+    md = _clean_text(rendered.markdown)
     images = rendered.images or {}
     metadata = rendered.metadata or {}
 
@@ -255,11 +331,24 @@ def _marker_extract(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
         elif block_type == "skip":
             continue
 
-        # Chunk oversized text/list blocks (same splitter as fitz fallback)
+        # Type-aware chunking. After this branch, every entry in
+        # ``sub_texts`` is structurally appropriate (paragraphs split
+        # on prose boundaries, tables split on row groups with header
+        # context preserved). The unconditional ``enforce_hard_max``
+        # below then guarantees no chunk exceeds the embedder ceiling
+        # regardless of type.
         if block_type in ("text", "list") and len(text) > DEFAULT_CHUNK_SIZE:
             sub_texts = split_text(text)
+        elif block_type == "table" and len(text) > DEFAULT_TABLE_CHUNK_SIZE:
+            sub_texts = split_table(text)
         else:
             sub_texts = [text]
+
+        # Final safety net: force-split anything still oversized,
+        # regardless of block type. Catches code dumps, equations,
+        # and corrupted Marker-OCR'd "tables" that arrive as a single
+        # newline-free string and so escape ``split_table``.
+        sub_texts = enforce_hard_max(sub_texts)
 
         for sub_text in sub_texts:
             if page_num not in block_counts:
@@ -470,8 +559,6 @@ def _fitz_fallback(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
     """
     import fitz
 
-    from acatome_extract.chunker import split_text
-
     doc = fitz.open(str(pdf_path))
     total_pages = doc.page_count
 
@@ -491,7 +578,10 @@ def _fitz_fallback(pdf_path: Path, paper_id: str) -> list[dict[str, Any]]:
     current_section: list[str] = []
 
     for page_num, text in page_texts:
-        chunks = split_text(text)
+        # split_text honors chunk_size by default but keeps single
+        # un-splittable words whole; enforce_hard_max catches that
+        # edge case (e.g., a no-space OCR run).
+        chunks = enforce_hard_max(split_text(text))
         for idx, chunk in enumerate(chunks):
             block_type = "text"
             if _is_likely_heading(chunk):

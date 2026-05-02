@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "acatome-extract"
-version = "0.6.1"
+version = "0.6.2"
 description = "PDF extraction pipeline for scientific papers"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -26,6 +26,10 @@ dependencies = [
     "typer>=0.12",
     "litellm>=1.40,!=1.82.7,!=1.82.8",
     "watchdog>=4.0",
+    # Mojibake repair on Marker / fitz output. Already a transitive dep
+    # of marker-pdf but pinned directly here so the fitz fallback path
+    # (no marker installed, e.g. Windows default) still gets it.
+    "ftfy>=6.3",
 ]
 
 [project.urls]

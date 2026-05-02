@@ -81,11 +81,22 @@ class TestMakeSlug:
         assert a == b
 
     def test_semicolon_separated_authors(self):
-        """Multi-author string packed into one name field with semicolons."""
+        """Multi-author string packed into one name field with semicolons.
+
+        Slug uses surname only (last word of first author), so first/middle
+        names drop away — keeps slugs canonical regardless of whether the
+        upstream metadata source used "Last, First" or "First Last".
+        """
         authors = [{"name": "Daniel S. Levine; Nicholas Liesen; Lauren Chua"}]
         slug = make_slug(authors, 2026, "Open Polymers Dataset")
-        assert slug == "danielslevine2026open"
+        assert slug == "levine2026open"
         assert len(slug) < 60
+
+    def test_first_last_matches_last_first(self):
+        """``"First Last"`` and ``"Last, First"`` must produce the same slug."""
+        a = make_slug([{"name": "Albert P. Bartok"}], 2010, "Gaussian Approximation")
+        b = make_slug([{"name": "Bartok, Albert P."}], 2010, "Gaussian Approximation")
+        assert a == b == "bartok2010gaussian"
 
     def test_surname_length_cap(self):
         """Very long surname gets capped at 30 chars."""
