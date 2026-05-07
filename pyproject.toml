@@ -41,8 +41,9 @@ marker = ["marker-pdf>=1.0"]
 store = ["acatome-store>=0.1.0"]
 embeddings = ["sentence-transformers>=3.0"]
 gpu = ["sentence-transformers>=3.0", "torch>=2.0"]
-full = ["acatome-extract[marker,embeddings,store]"]
 grobid = ["grobid-client-python>=0.0.7"]
+pdf2doi = ["pdf2doi>=1.5"]
+full = ["acatome-extract[marker,embeddings,store,grobid,pdf2doi]"]
 
 [project.scripts]
 acatome-extract = "acatome_extract.cli:app"

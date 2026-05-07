@@ -626,5 +626,77 @@ def migrate(
     )
 
 
+@app.command()
+def enrich_pdf(
+    path: Path = typer.Argument(..., help="PDF file or directory to enrich"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    force: bool = typer.Option(False, "--force", help="Force update even if PDF already has metadata"),
+    use_pdf2doi: bool = typer.Option(
+        False, "--use-pdf2doi", help="Use pdf2doi as fallback (must be installed)"
+    ),
+    no_recursive: bool = typer.Option(False, "--no-recursive", help="Don't scan subdirectories"),
+    no_require_bundle: bool = typer.Option(
+        False, "--no-require-bundle", help="Process all PDFs, not just those with .acatome bundles"
+    ),
+    audit_log: Path | None = typer.Option(
+        None, "--audit-log", help="Path to write audit log (JSONL or .csv)"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed progress"),
+):
+    """Enrich PDF metadata using .acatome bundle data.
+
+    Writes Title, Author, DOI, Journal, and other metadata back into PDF files
+    using exiftool. Sources metadata from .acatome bundles, .meta.json sidecars,
+    and internal DOI extraction/validation.
+
+    The tool is idempotent: re-running on already-enriched files will skip them
+    unless --force is used or better metadata is discovered.
+
+    Examples:
+        acatome-extract enrich-pdf ./papers/           # Process all PDFs with bundles
+        acatome-extract enrich-pdf ./paper.pdf         # Process single PDF
+        acatome-extract enrich-pdf ./ --dry-run        # Preview changes
+        acatome-extract enrich-pdf ./ --audit-log ./audit.jsonl
+    """
+    import logging
+
+    from acatome_extract.pdf_metadata import (
+        EnrichmentResult,
+        enrich_pdfs,
+        format_report,
+    )
+
+    if verbose:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(name)s %(message)s",
+            datefmt="%H:%M:%S",
+        )
+        logging.getLogger("acatome_extract.pdf_metadata").setLevel(logging.INFO)
+
+    def progress(current: int, total: int, result: EnrichmentResult) -> None:
+        if not verbose:
+            return
+        symbol = "✓" if result.success else "✗"
+        action = "updated" if result.updated else ("skipped" if result.success else "failed")
+        typer.echo(f"  [{current}/{total}] {symbol} {result.pdf_path.name} ({action})")
+
+    results = enrich_pdfs(
+        path,
+        use_pdf2doi=use_pdf2doi,
+        force=force,
+        dry_run=dry_run,
+        recursive=not no_recursive,
+        require_bundle=not no_require_bundle,
+        audit_log=audit_log,
+        progress_callback=progress,
+    )
+
+    typer.echo(format_report(results))
+
+    if audit_log:
+        typer.echo(f"\nAudit log written to: {audit_log}")
+
+
 if __name__ == "__main__":
     app()

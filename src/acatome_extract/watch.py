@@ -86,9 +86,13 @@ def _validate_shared_bundle(pdf_path: Path, bundle_path: Path) -> dict[str, Any]
     """Validate a pre-existing .acatome bundle against its PDF.
 
     Returns bundle header dict if valid, None if invalid.
-    Checks: readable, pdf_hash matches, title exists.
+    Checks: readable, pdf_hash matches (including history), title exists.
+
+    Backward compatible: validates against pdf_hash_history if present,
+    otherwise falls back to single pdf_hash check.
     """
     from acatome_extract.bundle import read_bundle
+    from acatome_extract.pdf_metadata import get_valid_hashes_for_bundle
 
     try:
         data = read_bundle(bundle_path)
@@ -98,15 +102,31 @@ def _validate_shared_bundle(pdf_path: Path, bundle_path: Path) -> dict[str, Any]
 
     header = data.get("header", {})
 
-    # pdf_hash must match the actual PDF
+    # pdf_hash must match the actual PDF (including enriched variants)
     actual_hash = _pdf_hash(pdf_path)
-    bundle_hash = header.get("pdf_hash", "")
-    if not bundle_hash or actual_hash != bundle_hash:
-        log.warning(
-            "  [shared] hash mismatch: bundle=%s pdf=%s",
-            bundle_hash[:12],
-            actual_hash[:12],
-        )
+    valid_hashes = get_valid_hashes_for_bundle(data)
+
+    if not valid_hashes:
+        log.warning("  [shared] bundle has no recorded hashes")
+        return None
+
+    if actual_hash not in valid_hashes:
+        # Show which hashes we tried
+        expected = header.get("pdf_hash", "")[:12]
+        if len(valid_hashes) > 1:
+            log.warning(
+                "  [shared] hash mismatch: pdf=%s not in bundle history "
+                "(original=%s + %d enriched variants)",
+                actual_hash[:12],
+                expected,
+                len(valid_hashes) - 1,
+            )
+        else:
+            log.warning(
+                "  [shared] hash mismatch: bundle=%s pdf=%s",
+                expected,
+                actual_hash[:12],
+            )
         return None
 
     # Must have a title
