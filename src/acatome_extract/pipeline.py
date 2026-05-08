@@ -414,7 +414,11 @@ def _rescue_metadata_from_blocks(
                     )
                 else:
                     log.info("S2 rescue hit: %s", s2_result.get("title", "")[:60])
-                    # Merge S2 result (higher quality) into rescued
+                    # Merge S2 result (higher quality) into rescued.
+                    # Includes ``external_ids`` so the rescue path
+                    # (text-extracted title → S2 search) populates the
+                    # full alias cluster in the bundle header same as
+                    # the primary cascade.
                     for key in (
                         "title",
                         "authors",
@@ -424,6 +428,7 @@ def _rescue_metadata_from_blocks(
                         "journal",
                         "abstract",
                         "s2_id",
+                        "external_ids",
                     ):
                         if s2_result.get(key):
                             rescued[key] = s2_result[key]
