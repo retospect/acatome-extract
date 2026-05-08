@@ -576,6 +576,13 @@ def _build_bundle(
             "abstract": header.get("abstract", ""),
             "entry_type": header.get("entry_type", "article"),
             "s2_id": header.get("s2_id"),
+            # Full Semantic Scholar `externalIds` cluster (DOI / ArXiv /
+            # PubMed / PubMedCentralID / MAG / DBLP / CorpusId /
+            # OpenAlex). Captured here so precis-mcp's ingest path can
+            # populate `ref_identifiers` rows for every alias without a
+            # second S2 round-trip. Empty dict for paths that didn't go
+            # through S2 (e.g. CrossRef-DOI-only lookup).
+            "external_ids": header.get("external_ids", {}) or {},
             "keywords": [],
             "pdf_hash": pdf_meta["pdf_hash"],
             "page_count": pdf_meta["page_count"],
