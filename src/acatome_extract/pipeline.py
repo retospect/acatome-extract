@@ -136,6 +136,19 @@ def extract(
         header.get("title", ""),
     )
 
+    # Surface identifiers BEFORE the slow Marker pass so the user can
+    # grep the log for which paper is being digitised, and so any
+    # downstream "skipped (already present)" line (precis-mcp ingest)
+    # is paired with the IDs that decided dedup.
+    log.info(
+        "  identifiers: slug=%s doi=%s arxiv=%s s2=%s pdf_hash=%s",
+        slug,
+        header.get("doi") or "-",
+        header.get("arxiv_id") or "-",
+        header.get("s2_id") or "-",
+        (pdf_meta["pdf_hash"] or "-")[:12],
+    )
+
     # Step 2: Marker — structured content (falls back to fitz if Marker fails)
     blocks = extract_blocks_marker(pdf_path, paper_id)
 
